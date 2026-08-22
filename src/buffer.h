@@ -4,6 +4,7 @@
 #define INPUTER_BUFFER_H
 
 #include <string>
+#include <deque>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -15,12 +16,14 @@
 
 // Result of feeding one key into the state machine, applied by the engine.
 struct KeyResult {
-    KeyResult(bool handled = false, bool hasCommit = false,
-              std::string commitText = {}, bool updateUI = false,
-              bool notifyMode = false, std::string notification = {})
-        : handled(handled), hasCommit(hasCommit),
-          commitText(std::move(commitText)), updateUI(updateUI),
-          notifyMode(notifyMode), notification(std::move(notification)) {}
+    // Parameters carry an Arg suffix so they do not shadow the members
+    // (-Wshadow); brace-initialization at every return site keeps working.
+    KeyResult(bool handledArg = false, bool hasCommitArg = false,
+              std::string commitTextArg = {}, bool updateUIArg = false,
+              bool notifyModeArg = false, std::string notificationArg = {})
+        : handled(handledArg), hasCommit(hasCommitArg),
+          commitText(std::move(commitTextArg)), updateUI(updateUIArg),
+          notifyMode(notifyModeArg), notification(std::move(notificationArg)) {}
 
     bool handled = false;      // If false, let the application handle the key.
     bool hasCommit = false;    // commitText should be committed to the client.
@@ -319,8 +322,10 @@ private:
     int highlight_ = 0;                  // highlighted candidate within the page
     // Readings from text Ari has already composed in this input context. They
     // make the common reconversion path immediate; unknown external text falls
-    // back to the bounded libchewing reverse lookup.
+    // back to the bounded libchewing reverse lookup. Insertion order is kept
+    // so eviction is FIFO rather than an arbitrary unordered_map element.
     std::unordered_map<std::string, std::string> knownReadings_;
+    std::deque<std::string> knownReadingsOrder_;
     Zhuyin zhuyin_;                      // live Chinese run; scratch while selecting
 };
 

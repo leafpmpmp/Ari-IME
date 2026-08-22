@@ -5,6 +5,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <deque>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -158,7 +159,9 @@ private:
     // External committed text may need a bounded reverse lookup. Cache the
     // first valid reading per character so repeated reconversion stays quick;
     // readings learned from Ari's own cells are kept separately in Buffer.
+    // Insertion order is kept so eviction is FIFO.
     std::unordered_map<std::string, std::string> reverseReadings_;
+    std::deque<std::string> reverseReadingsOrder_;
 };
 
 #endif // INPUTER_ZHUYIN_H

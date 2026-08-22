@@ -157,7 +157,11 @@ check_srcinfo() {
     if [[ -f .SRCINFO ]]; then
         local srcinfo_tmp
         srcinfo_tmp="$(mktemp /tmp/inputer-srcinfo-XXXXXX)"
-        print_srcinfo >"$srcinfo_tmp"
+        if ! print_srcinfo >"$srcinfo_tmp"; then
+            rm -f "$srcinfo_tmp"
+            printf 'Failed to regenerate .SRCINFO\n' >&2
+            exit 1
+        fi
         set +e
         run diff -u .SRCINFO "$srcinfo_tmp"
         local status=$?

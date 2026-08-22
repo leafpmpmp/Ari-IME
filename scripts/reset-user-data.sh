@@ -139,11 +139,16 @@ if [[ "$confirm" -ne 1 ]]; then
     esac
 fi
 
-stamp="$(date +%Y%m%d-%H%M%S)"
+# Second resolution keeps rapid successive runs from clobbering a backup
+# created within the same second (the IME can recreate a file immediately).
+stamp="$(date +%Y%m%d-%H%M%S).$$"
 for t in "${existing[@]}"; do
     if [[ "$backup" -eq 1 ]]; then
         backup_path="$t.bak.$stamp"
-        mv "$t" "$backup_path"
+        if ! mv -n -- "$t" "$backup_path"; then
+            printf 'Cannot back up %s\n' "$t" >&2
+            exit 1
+        fi
         printf 'Backed up %s -> %s\n' "$t" "$backup_path"
     else
         rm -f "$t"

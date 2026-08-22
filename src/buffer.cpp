@@ -332,6 +332,12 @@ std::string chinesePunct(char c) {
     probe = probeForCurrentLayout(probe, probeLayout);
     probe->resetAll();
     probe->handleDefault(static_cast<int>(c));
+    // A key that is a 注音 key in this layout parks a Bopomofo symbol instead
+    // of producing punctuation; never let that glyph leak out as "punct".
+    if (probe->hasBopomofo()) {
+        probe->resetAll();
+        return {};
+    }
     std::string out;
     if (probe->hasCommit()) {
         out = probe->takeCommit();
@@ -642,6 +648,11 @@ bool Buffer::setKeyboardLayout(inputer::KeyboardLayout layout) {
     layout_ = layout;
     inputer::setCurrentKeyboardLayout(layout_);
     zhuyin_.setKeyboardLayout(layout_);
+    // knownReadings_ caches the same layout-specific raw keys for
+    // reconversion; stale entries would be re-fed through the new layout and
+    // produce garbage readings.
+    knownReadings_.clear();
+    knownReadingsOrder_.clear();
     return true;
 }
 
@@ -1155,7 +1166,12 @@ KeyResult Buffer::handleChar(char c, bool literal) {
 }
 
 KeyResult Buffer::handleLiteralChar(char c) {
-    if (fullWidthPunct_) {
+    // Full-width conversion must stay away from keys that are 注音 keys in the
+    // active layout: probing them through chewing parks a Bopomofo symbol and
+    // force-committing it would emit a stray ㄅㄆㄇ character instead of the
+    // literal or full-width form. The other call sites already apply this
+    // guard; the keypad and invalid-syllable paths reach here unguarded.
+    if (fullWidthPunct_ && inputer::zhuyinSlot(c) < 0) {
         std::string punct = chinesePunct(c);
         if (!punct.empty()) {
             freezeAll();
@@ -1565,12 +1581,19 @@ void Buffer::learnFromCells() {
                         cells_[j].chinese;
              ++j) {
             if (!cells_[j].reading.empty()) {
-                knownReadings_[cells_[j].text] = cells_[j].reading;
+                auto [entry, inserted] =
+                    knownReadings_.try_emplace(cells_[j].text,
+                                               cells_[j].reading);
+                if (inserted) {
+                    knownReadingsOrder_.push_back(entry->first);
+                }
             }
         }
         constexpr std::size_t kMaxKnownReadings = 4096;
-        while (knownReadings_.size() > kMaxKnownReadings) {
-            knownReadings_.erase(knownReadings_.begin());
+        while (knownReadings_.size() > kMaxKnownReadings &&
+               !knownReadingsOrder_.empty()) {
+            knownReadings_.erase(knownReadingsOrder_.front());
+            knownReadingsOrder_.pop_front();
         }
         int s = i;
         while (i < static_cast<int>(cells_.size()) && cells_[i].chinese) {
@@ -2276,6 +2299,29 @@ void Buffer::pasteAtCaret(const std::string &text) {
         if (isIgnoredPasteFormat(ch)) {
             continue;
         }
+        // Clipboard data is untrusted: drop clusters that are not well-formed
+        // UTF-8 instead of committing broken bytes to the client, and fold C1
+        // controls (validly encoded but invisible) in with the separators.
+        bool clusterValid = !ch.empty();
+        for (std::size_t off = 0; off < ch.size();) {
+            const inputer::unicode::CodePoint cp =
+                inputer::unicode::decode(ch, off);
+            if (!cp.valid) {
+                clusterValid = false;
+                break;
+            }
+            if (cp.value >= 0x80 && cp.value <= 0x9F) {
+                clusterValid = false;
+                break;
+            }
+            off += cp.length;
+        }
+        if (!clusterValid) {
+            if (!pasted.empty() && pasted.back().text != " ") {
+                pasted.push_back({false, " ", {}});
+            }
+            continue;
+        }
         if (isPasteSeparator(ch)) {
             if (pasted.empty() || pasted.back().text != " ") {
                 pasted.push_back({false, " ", {}});
@@ -2330,6 +2376,11 @@ KeyResult Buffer::revertCellToEnglish() {
     }
     runLoaded_ = false;   // cell layout changed
     candOpen_ = false;    // back to caret mode, caret right after the exploded keys
+    // The raw-keys entry was consumed; drop its candidate list so a later
+    // reinterpret cannot reopen a window wired to the old selection run.
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
     caretPos_ = at;
     selCursor_ = at - 1;
     return {true, false, {}, true};
@@ -2440,8 +2491,15 @@ KeyResult Buffer::reinterpretFromCell() {
     // the cursor offset), not the candidate list (whose top item may be a phrase).
     auto chars = splitUtf8(zhuyin_.preedit());
     int k = selCursor_ - selRunStart_;
-    cells_[selCursor_].text =
-        k < static_cast<int>(chars.size()) ? chars[k] : found;
+    if (k < 0 || k >= static_cast<int>(chars.size())) {
+        // Chewing's fed preedit came up short for this offset. Bail out with a
+        // single-codepoint placeholder instead of storing the multi-byte raw
+        // syllable in a Chinese cell: applyRunToCells maps one codepoint per
+        // cell, and an oversized text here would leave stale glyphs behind.
+        cells_[selCursor_] = {true, "？", found};
+        return {true, false, {}, true};
+    }
+    cells_[selCursor_].text = chars[k];
     return {true, false, {}, true};
 }
 
@@ -2559,6 +2617,14 @@ KeyResult Buffer::openCandidatesAt(int cell, bool reinterpret) {
     // English cell: only ↑ acts — fold it (+ the next few) back into a 注音
     // character and open its candidates. ↓ on English has nothing to pick.
     if (reinterpret) {
+        // reinterpretFromCell() early-outs without touching selCands_ on
+        // failure paths; a stale list from a previous picking session would
+        // reopen a window wired to the wrong cell and let the next pick land
+        // on stale run indices. Clear it so candOpen_ only reflects a fresh
+        // rebuild.
+        selCands_.clear();
+        selPage_ = 0;
+        highlight_ = 0;
         KeyResult r = reinterpretFromCell();
         candOpen_ = !selCands_.empty(); // false if nothing converted
         return r;

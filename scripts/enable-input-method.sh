@@ -74,6 +74,24 @@ if [[ -e "$profile" && ! -f "$profile" ]]; then
     exit 1
 fi
 
+# -e/-f follow symlinks, so a symlinked profile (GNU Stow, chezmoi, manual
+# ln -s) passes the regular-file check above. Resolve it once: writing over
+# the link itself would silently detach the user's config management.
+if [[ -L "$profile" ]]; then
+    resolved="$(readlink -f -- "$profile")" || {
+        printf 'Cannot resolve Fcitx5 profile symlink: %s\n' "$profile" >&2
+        exit 1
+    }
+    if [[ ! -f "$resolved" ]]; then
+        printf 'Fcitx5 profile symlink target is not a regular file: %s\n' \
+            "$resolved" >&2
+        exit 1
+    fi
+    printf 'Fcitx5 profile is a symlink to %s; editing the target\n' \
+        "$resolved"
+    profile="$resolved"
+fi
+
 profile_dir="$(dirname -- "$profile")"
 group_id=""
 if [[ -s "$profile" ]]; then

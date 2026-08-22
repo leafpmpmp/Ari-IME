@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "user_data.h"
+#include "unicode.h"
 #include "zhuyin.h"
 
 namespace {
@@ -28,6 +29,7 @@ constexpr std::string_view kHeader = "# Ari IME user dictionary v1";
 struct Entry {
     std::string phrase;
     std::string reading;
+    int line = 0;
 };
 
 std::string entryKey(std::string_view phrase, std::string_view reading) {
@@ -57,6 +59,33 @@ bool hasTabOrNewline(std::string_view value) {
            value.find('\r') != std::string_view::npos;
 }
 
+// Canonical readings contain only Bopomofo letters (U+3105–U+3129) plus one of
+// the tone marks the format uses. Layout keys such as "su3", ASCII, and
+// punctuation fail here with a per-line error before anything touches the
+// dictionary; libchewing's own rejection stays as a belt-and-braces branch.
+bool isCanonicalReading(const std::string &reading) {
+    if (reading.empty()) {
+        return false;
+    }
+    std::size_t offset = 0;
+    while (offset < reading.size()) {
+        const inputer::unicode::CodePoint cp =
+            inputer::unicode::decode(reading, offset);
+        if (!cp.valid) {
+            return false;
+        }
+        const bool letter = cp.value >= 0x3105 && cp.value <= 0x3129;
+        const bool tone =
+            cp.value == 0x02C7 || cp.value == 0x02C9 || cp.value == 0x02CA ||
+            cp.value == 0x02CC || cp.value == 0x02D7 || cp.value == 0x00B7;
+        if (!letter && !tone) {
+            return false;
+        }
+        offset += cp.length;
+    }
+    return true;
+}
+
 bool readEntries(std::istream &in, std::vector<Entry> &entries,
                  std::string &error) {
     std::string line;
@@ -68,6 +97,15 @@ bool readEntries(std::istream &in, std::vector<Entry> &entries,
         ++lineNumber;
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
+        }
+        if (lineNumber == 1) {
+            // Tolerate the UTF-8 BOM that common editors (notably on Windows)
+            // prepend; without this the header check reports a misleading
+            // syntax error for three invisible bytes.
+            constexpr std::string_view kBom = "\xEF\xBB\xBF";
+            if (line.compare(0, kBom.size(), kBom) == 0) {
+                line.erase(0, kBom.size());
+            }
         }
         if (line.empty()) {
             continue;
@@ -98,11 +136,17 @@ bool readEntries(std::istream &in, std::vector<Entry> &entries,
                     std::to_string(lineNumber);
             return false;
         }
+        if (!isCanonicalReading(reading)) {
+            error = "reading must be canonical Bopomofo (for example ㄋㄧˇ), "
+                    "got \"" +
+                    reading + "\" on line " + std::to_string(lineNumber);
+            return false;
+        }
 
         // Deduplicate before touching the live dictionary. The separator is
         // not valid inside either field, so this key is unambiguous.
         if (seen.insert(entryKey(phrase, reading)).second) {
-            entries.push_back({phrase, reading});
+            entries.push_back({phrase, reading, static_cast<int>(lineNumber)});
         }
     }
     if (!in.eof()) {
@@ -252,16 +296,41 @@ int commandExport(const std::string &filename) {
     if (filename == "-" || filename.empty()) {
         return writeEntries(std::cout, engine.userPhrases()) ? 0 : 1;
     }
-    std::ofstream out(filename, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        std::cerr << "ari-ime-dict: cannot open export file: " << filename
-                  << '\n';
-        return 1;
+    // Write to a sibling temporary file and move it into place so a failed or
+    // malformed export cannot truncate a previously good destination.
+    const std::filesystem::path destination(filename);
+    std::filesystem::path temporary = destination;
+    temporary += ".tmp";
+    {
+        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            std::cerr << "ari-ime-dict: cannot open export file: " << filename
+                      << '\n';
+            return 1;
+        }
+        if (!writeEntries(out, engine.userPhrases())) {
+            std::cerr << "ari-ime-dict: cannot write export file: " << filename
+                      << '\n';
+            std::error_code cleanupEc;
+            std::filesystem::remove(temporary, cleanupEc);
+            return 1;
+        }
     }
-    if (!writeEntries(out, engine.userPhrases())) {
-        std::cerr << "ari-ime-dict: cannot write export file: " << filename
-                  << '\n';
-        return 1;
+    std::error_code renameEc;
+    std::filesystem::rename(temporary, destination, renameEc);
+    if (renameEc) {
+        // Cross-device destinations cannot be renamed; copy then clean up.
+        std::error_code copyEc;
+        std::filesystem::copy_file(temporary, destination,
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   copyEc);
+        std::error_code cleanupEc;
+        std::filesystem::remove(temporary, cleanupEc);
+        if (copyEc) {
+            std::cerr << "ari-ime-dict: cannot write export file: " << filename
+                      << ": " << copyEc.message() << '\n';
+            return 1;
+        }
     }
     return 0;
 }
@@ -318,7 +387,7 @@ int commandImport(const std::string &filename, bool dryRun) {
         const int result = engine.addUserPhrase(entry.phrase, entry.reading);
         if (result < 0) {
             std::cerr << "ari-ime-dict: libchewing rejected an entry for "
-                      << entry.phrase << '\n';
+                      << entry.phrase << " on line " << entry.line << '\n';
             if (!backup.empty()) {
                 std::cerr << "A backup was kept at " << backup.string() << '\n';
             }

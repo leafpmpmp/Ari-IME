@@ -208,6 +208,10 @@ inline std::vector<std::string> splitGraphemes(const std::string &text) {
         end += first.length;
         bool previousJoiner = false;
         int regionalCount = isRegionalIndicator(first.value) ? 1 : 0;
+        // ZWJ only joins emoji sequences (UAX #29 scopes it to
+        // Extended_Pictographic runs). Track whether the cluster's base lives
+        // in a symbol/emoji block so an ordinary "a\u200Db" stops gluing.
+        std::uint32_t base = first.value;
 
         while (end < text.size()) {
             const CodePoint next = decode(text, end);
@@ -218,7 +222,9 @@ inline std::vector<std::string> splitGraphemes(const std::string &text) {
                 end += next.length;
                 break;
             }
-            if (isExtend(next.value) || next.value == 0x200D ||
+            const bool zwjJoin =
+                next.value == 0x200D && base >= 0x2000;
+            if (isExtend(next.value) || zwjJoin ||
                 previousJoiner || pairRegional) {
                 end += next.length;
                 if (pairRegional) {

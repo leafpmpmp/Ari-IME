@@ -84,6 +84,9 @@ bool resetUserDictionary(std::error_code &ec) {
 
     const std::filesystem::path paths[] = {
         dir / "userdict.dat",
+        // uhash.dat is written by libchewing's WASM build and by some older
+        // native releases; removing it when absent is a harmless no-op.
+        dir / "uhash.dat",
         dir / "chewing.dat",
         dir / "chewing-deleted.dat",
         dir / "preferences.tsv",

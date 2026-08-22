@@ -243,6 +243,7 @@ void Zhuyin::resetAll() {
 void Zhuyin::setKeyboardLayout(inputer::KeyboardLayout layout) {
     if (layout_ != layout) {
         reverseReadings_.clear();
+        reverseReadingsOrder_.clear();
     }
     layout_ = layout;
     if (ctx_) {
@@ -308,7 +309,11 @@ std::vector<std::string> Zhuyin::readingsForText(const std::string &text) {
             if (sequence.toneOne) {
                 reading.push_back(' ');
             }
-            reverseReadings_.try_emplace(candidate, reading);
+            auto [entry, inserted] =
+                reverseReadings_.try_emplace(candidate, reading);
+            if (inserted) {
+                reverseReadingsOrder_.push_back(entry->first);
+            }
             for (const std::size_t index : wantedIt->second) {
                 if (!readings[index].empty()) {
                     continue;
@@ -320,8 +325,10 @@ std::vector<std::string> Zhuyin::readingsForText(const std::string &text) {
         probe.closeCandidates();
     }
     constexpr std::size_t kMaxReverseReadings = 4096;
-    while (reverseReadings_.size() > kMaxReverseReadings) {
-        reverseReadings_.erase(reverseReadings_.begin());
+    while (reverseReadings_.size() > kMaxReverseReadings &&
+           !reverseReadingsOrder_.empty()) {
+        reverseReadings_.erase(reverseReadingsOrder_.front());
+        reverseReadingsOrder_.pop_front();
     }
     probe.resetAll();
     return readings;
