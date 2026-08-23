@@ -8,7 +8,7 @@ The flake exposes `packages`, `overlays.default` (adds `pkgs.fcitx5-ari-ime`),
 plus `nixosModules.default` and `homeManagerModules.default`. Importing the
 module appends the package to `i18n.inputMethod.fcitx5.addons` whenever Fcitx5
 is the selected input method framework, and changes nothing under ibus or
-other frameworks. Learned personal data stays in `~/.config/inputer/` exactly
+other frameworks. Learned personal data stays in `~/.config/ari-ime/` exactly
 as on other distributions, so rebuilds never remove it.
 
 The package derivation reads its version from `CMakeLists.txt` at evaluation

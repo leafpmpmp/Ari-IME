@@ -17,12 +17,12 @@ let
   # has no meaning inside a bracket expression, and requires the whole
   # string to match.
   projectLines = builtins.filter
-    (lib.hasPrefix "project(inputer ")
+    (lib.hasPrefix "project(ari-ime ")
     (lib.splitString "\n" (builtins.readFile (src + "/CMakeLists.txt")));
   versionMatch =
     if projectLines == [ ] then null
     else builtins.match
-      "project\\(inputer VERSION ([0-9]+\\.[0-9]+\\.[0-9]+).*"
+      "project\\(ari-ime VERSION ([0-9]+\\.[0-9]+\\.[0-9]+).*"
       (builtins.head projectLines);
 in
 

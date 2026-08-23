@@ -83,6 +83,6 @@ command -v ari-ime-enable >/dev/null 2>&1 ||
     die 'the package installed without ari-ime-enable'
 
 # This also reloads an existing daemon, starts it in a graphical session when
-# needed, selects Ari, and verifies that inputer is the active IME.
+# needed, selects Ari, and verifies that ari-ime is the active IME.
 ari-ime-enable --yes --make-default
 printf '%s\n' 'Ari IME was downloaded, installed, enabled, and selected as default.'

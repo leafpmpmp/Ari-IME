@@ -13,7 +13,7 @@
 
 #include <chewing.h>
 
-namespace inputer {
+namespace ari_ime {
 namespace {
 
 // Slot probing needs no user dictionary. Suppress libchewing's expected
@@ -65,7 +65,7 @@ std::array<int8_t, 128> buildSlots(KeyboardLayout layout) {
     slots.fill(kNoZhuyinSlot);
 
     ChewingContext *ctx =
-#ifdef INPUTER_WASM
+#ifdef ARI_IME_WASM
         chewing_new2("/usr/share/libchewing", nullptr, quietChewingLogger,
                      nullptr);
 #else
@@ -483,4 +483,4 @@ syllableKeySequences(KeyboardLayout layout) {
     return result;
 }
 
-} // namespace inputer
+} // namespace ari_ime

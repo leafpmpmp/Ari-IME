@@ -22,8 +22,8 @@ namespace {
 
 constexpr std::string_view kHeader = "# Ari IME user dictionary v1";
 
-#ifndef INPUTER_CHEWING_VERSION
-#define INPUTER_CHEWING_VERSION "unknown"
+#ifndef ARI_IME_CHEWING_VERSION
+#define ARI_IME_CHEWING_VERSION "unknown"
 #endif
 
 struct Entry {
@@ -69,8 +69,8 @@ bool isCanonicalReading(const std::string &reading) {
     }
     std::size_t offset = 0;
     while (offset < reading.size()) {
-        const inputer::unicode::CodePoint cp =
-            inputer::unicode::decode(reading, offset);
+        const ari_ime::unicode::CodePoint cp =
+            ari_ime::unicode::decode(reading, offset);
         if (!cp.valid) {
             return false;
         }
@@ -182,14 +182,14 @@ bool writeEntries(std::ostream &out, std::vector<UserPhrase> entries) {
 }
 
 std::vector<std::filesystem::path> dictionaryFiles() {
-    const auto dir = inputer::userDataDir();
+    const auto dir = ari_ime::userDataDir();
     return {dir / "userdict.dat", dir / "chewing.dat",
             dir / "chewing-deleted.dat", dir / "preferences.tsv"};
 }
 
 std::filesystem::path makeBackup(std::error_code &ec) {
     ec.clear();
-    const auto dir = inputer::userDataDir();
+    const auto dir = ari_ime::userDataDir();
     if (dir.empty()) {
         ec = std::make_error_code(std::errc::no_such_file_or_directory);
         return {};
@@ -241,7 +241,7 @@ std::filesystem::path makeBackup(std::error_code &ec) {
 
 bool ensureDataDirectory() {
     std::error_code ec;
-    if (inputer::ensureUserDataDir(ec)) {
+    if (ari_ime::ensureUserDataDir(ec)) {
         return true;
     }
     std::cerr << "ari-ime-dict: cannot prepare user data directory: "
@@ -267,8 +267,8 @@ int commandInfo() {
     }
     const auto entries = engine.userPhrases();
     std::cout << "format\tAri IME user dictionary v1\n"
-              << "data_dir\t" << inputer::userDataDir().string() << '\n'
-              << "libchewing\t" << INPUTER_CHEWING_VERSION << '\n'
+              << "data_dir\t" << ari_ime::userDataDir().string() << '\n'
+              << "libchewing\t" << ARI_IME_CHEWING_VERSION << '\n'
               << "entries\t" << entries.size() << '\n';
     return 0;
 }

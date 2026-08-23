@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Kaiyasi
-#ifndef INPUTER_UNICODE_H
-#define INPUTER_UNICODE_H
+#ifndef ARI_IME_UNICODE_H
+#define ARI_IME_UNICODE_H
 
 #include <algorithm>
 #include <cstddef>
@@ -15,7 +15,7 @@
 // variation selectors, emoji modifiers, tag characters, regional-indicator
 // flags, and ZWJ emoji sequences; ordinary CJK/Latin text remains one cluster
 // per codepoint.
-namespace inputer::unicode {
+namespace ari_ime::unicode {
 
 struct CodePoint {
     std::uint32_t value = 0;
@@ -258,6 +258,6 @@ inline std::size_t graphemeOffset(const std::string &text, int index) {
     return offset;
 }
 
-} // namespace inputer::unicode
+} // namespace ari_ime::unicode
 
-#endif // INPUTER_UNICODE_H
+#endif // ARI_IME_UNICODE_H

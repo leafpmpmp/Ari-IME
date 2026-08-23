@@ -30,7 +30,7 @@ bool validPreferencePhrase(std::string_view phrase) {
 
 std::unordered_set<std::string> readPreferredPhrases() {
     std::unordered_set<std::string> phrases;
-    const auto path = inputer::userPreferencePath();
+    const auto path = ari_ime::userPreferencePath();
     if (path.empty()) {
         return phrases;
     }
@@ -53,8 +53,8 @@ std::unordered_set<std::string> readPreferredPhrases() {
 
 bool writePreferredPhrases(
     const std::unordered_set<std::string> &phrases) {
-    const auto path = inputer::userPreferencePath();
-    const auto dir = inputer::userDataDir();
+    const auto path = ari_ime::userPreferencePath();
+    const auto dir = ari_ime::userDataDir();
     if (path.empty() || dir.empty()) {
         return false;
     }
@@ -152,18 +152,18 @@ private:
 
 Zhuyin::Zhuyin() {
     std::error_code ec;
-    const bool haveUserDataDir = inputer::ensureUserDataDir(ec);
-#ifdef INPUTER_WASM
+    const bool haveUserDataDir = ari_ime::ensureUserDataDir(ec);
+#ifdef ARI_IME_WASM
     // The portable C libchewing used by the WASM build expects a writable
     // user-dictionary file. Newer native builds use a different explicit path
     // convention, so keep this compatibility detail local to WASM.
     const std::string path =
         haveUserDataDir
-            ? (inputer::userDataDir() / "uhash.dat").string()
+            ? (ari_ime::userDataDir() / "uhash.dat").string()
             : std::string{};
 #else
     const std::string path =
-        haveUserDataDir ? inputer::userDictionaryPath().string() : std::string{};
+        haveUserDataDir ? ari_ime::userDictionaryPath().string() : std::string{};
 #endif
     // libchewing 0.12 stores its learned user dictionary (chewing.dat /
     // chewing-deleted.dat) at CHEWING_USER_PATH, falling back to
@@ -172,9 +172,9 @@ Zhuyin::Zhuyin() {
     // libchewing input method. Pin it to Ari's own data directory so learning
     // stays self-contained and resettable; restored right after construction.
     const std::string dataDir =
-        haveUserDataDir ? inputer::userDataDir().string() : std::string{};
+        haveUserDataDir ? ari_ime::userDataDir().string() : std::string{};
     ScopedEnv chewingUserPath("CHEWING_USER_PATH", dataDir);
-#ifdef INPUTER_WASM
+#ifdef ARI_IME_WASM
     // The WASM package preloads libchewing's dictionary files into MEMFS at
     // this stable path. Native Fcitx builds continue using libchewing's normal
     // compiled-in search path.
@@ -196,11 +196,11 @@ Zhuyin::Zhuyin() {
         return;
     }
     chewing_set_KBType(
-        ctx_, inputer::chewingKeyboardType(inputer::currentKeyboardLayout()));
+        ctx_, ari_ime::chewingKeyboardType(ari_ime::currentKeyboardLayout()));
     // Tests run with a throwaway dictionary and should not try to persist learned
     // data; production keeps auto-learning enabled by default.
     chewing_set_autoLearn(
-        ctx_, inputer::autoLearnEnabled() ? AUTOLEARN_ENABLED
+        ctx_, ari_ime::autoLearnEnabled() ? AUTOLEARN_ENABLED
                                           : AUTOLEARN_DISABLED);
 #if defined(CHEWING_VERSION_MAJOR) && defined(CHEWING_VERSION_MINOR) &&           \
     (CHEWING_VERSION_MAJOR > 0 || CHEWING_VERSION_MINOR >= 9)
@@ -214,8 +214,8 @@ Zhuyin::Zhuyin() {
 #endif
     chewing_set_spaceAsSelection(ctx_, 0);    // We drive selection ourselves.
     chewing_set_escCleanAllBuf(ctx_, 1);
-    chewing_set_candPerPage(ctx_, inputer::kCandPerPage);
-    chewing_set_maxChiSymbolLen(ctx_, inputer::kMaxCompositionChars);
+    chewing_set_candPerPage(ctx_, ari_ime::kCandPerPage);
+    chewing_set_maxChiSymbolLen(ctx_, ari_ime::kMaxCompositionChars);
     // Load personal mappings before the context starts receiving user input.
     // Older libchewing releases can disturb a live long pre-edit when their
     // userphrase enumeration API is called mid-composition.
@@ -232,7 +232,7 @@ Zhuyin::~Zhuyin() {
 void Zhuyin::resetAll() {
     if (ctx_) {
         chewing_Reset(ctx_);
-#ifdef INPUTER_LIBCHEWING_LEGACY_OUTPUT
+#ifdef ARI_IME_LIBCHEWING_LEGACY_OUTPUT
         // libchewing 0.6 resets the editor state but leaves its compatibility
         // display buffer populated until Esc is handled explicitly.
         chewing_handle_Esc(ctx_);
@@ -240,19 +240,19 @@ void Zhuyin::resetAll() {
     }
 }
 
-void Zhuyin::setKeyboardLayout(inputer::KeyboardLayout layout) {
+void Zhuyin::setKeyboardLayout(ari_ime::KeyboardLayout layout) {
     if (layout_ != layout) {
         reverseReadings_.clear();
         reverseReadingsOrder_.clear();
     }
     layout_ = layout;
     if (ctx_) {
-        chewing_set_KBType(ctx_, inputer::chewingKeyboardType(layout));
+        chewing_set_KBType(ctx_, ari_ime::chewingKeyboardType(layout));
     }
 }
 
 std::vector<std::string> Zhuyin::readingsForText(const std::string &text) {
-    const auto chars = inputer::unicode::splitGraphemes(text);
+    const auto chars = ari_ime::unicode::splitGraphemes(text);
     std::vector<std::string> readings(chars.size());
     if (!ctx_ || chars.empty()) {
         return readings;
@@ -281,7 +281,7 @@ std::vector<std::string> Zhuyin::readingsForText(const std::string &text) {
 
     Zhuyin probe;
     probe.setKeyboardLayout(layout_);
-    for (const auto &sequence : inputer::syllableKeySequences(layout_)) {
+    for (const auto &sequence : ari_ime::syllableKeySequences(layout_)) {
         if (remaining == 0) {
             break;
         }
@@ -298,7 +298,7 @@ std::vector<std::string> Zhuyin::readingsForText(const std::string &text) {
         const int total = probe.candidateCount();
         for (int i = 0; i < total; ++i) {
             const std::string candidate = probe.candidate(i);
-            if (inputer::unicode::graphemeCount(candidate) != 1) {
+            if (ari_ime::unicode::graphemeCount(candidate) != 1) {
                 continue;
             }
             const auto wantedIt = wanted.find(candidate);
@@ -548,7 +548,7 @@ int Zhuyin::addUserPhrase(const std::string &phrase,
 }
 
 bool Zhuyin::rememberPreferredPhrase(const std::string &phrase) {
-    if (!ctx_ || !inputer::autoLearnEnabled() ||
+    if (!ctx_ || !ari_ime::autoLearnEnabled() ||
         !validPreferencePhrase(phrase)) {
         return false;
     }
@@ -576,7 +576,7 @@ bool Zhuyin::loadUserPhraseCache() {
     // same entries; importing that broad set is unnecessary and can disturb a
     // long active window. Ari's own sidecar is deliberately unambiguous.
     userPhraseTexts_ = readPreferredPhrases();
-#ifdef INPUTER_LEGACY_PREFERENCE_PROMOTION
+#ifdef ARI_IME_LEGACY_PREFERENCE_PROMOTION
     // The sidecar records which phrases were deliberately chosen, while the
     // libchewing dictionary confirms that the corresponding mapping actually
     // exists. Intersecting both stores avoids promoting stale sidecar text.
@@ -592,7 +592,7 @@ bool Zhuyin::loadUserPhraseCache() {
 }
 
 int Zhuyin::promoteUserPhrases() {
-#ifndef INPUTER_LEGACY_PREFERENCE_PROMOTION
+#ifndef ARI_IME_LEGACY_PREFERENCE_PROMOTION
     return 0;
 #else
     if (!ctx_ || !loadUserPhraseCache()) {
@@ -607,8 +607,8 @@ int Zhuyin::promoteUserPhrases() {
     };
 
     int applied = 0;
-    for (int pass = 0; pass < inputer::kMaxCompositionChars; ++pass) {
-        const auto visible = inputer::unicode::splitGraphemes(preedit());
+    for (int pass = 0; pass < ari_ime::kMaxCompositionChars; ++pass) {
+        const auto visible = ari_ime::unicode::splitGraphemes(preedit());
         if (visible.empty()) {
             break;
         }
@@ -626,7 +626,7 @@ int Zhuyin::promoteUserPhrases() {
             }
 
             for (int down = 0, guard = 0;
-                 guard < inputer::kMaxSyllables; ++guard, ++down) {
+                 guard < ari_ime::kMaxSyllables; ++guard, ++down) {
                 const int total = candidateCount();
                 for (int index = 0; index < total; ++index) {
                     const std::string text = candidate(index);
@@ -636,7 +636,7 @@ int Zhuyin::promoteUserPhrases() {
                         continue;
                     }
                     const auto candidateChars =
-                        inputer::unicode::splitGraphemes(text);
+                        ari_ime::unicode::splitGraphemes(text);
                     const int length = static_cast<int>(candidateChars.size());
                     if (length <= 0 ||
                         start + length > static_cast<int>(visible.size())) {
@@ -666,7 +666,7 @@ int Zhuyin::promoteUserPhrases() {
                 }
 
                 if (total <= 0 ||
-                    inputer::unicode::graphemeCount(candidate(0)) <= 1) {
+                    ari_ime::unicode::graphemeCount(candidate(0)) <= 1) {
                     break;
                 }
                 handleDown();
@@ -840,7 +840,7 @@ std::string Zhuyin::takeCommit() {
             out = s;
         }
     }
-#ifdef INPUTER_LIBCHEWING_LEGACY_OUTPUT
+#ifdef ARI_IME_LIBCHEWING_LEGACY_OUTPUT
     // libchewing 0.6 has no chewing_ack(). Processing an ignored key performs
     // the same output-buffer rollover without changing the composition.
     chewing_handle_Default(ctx_, 0);

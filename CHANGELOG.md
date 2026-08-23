@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.6.1 - 2026-08-23
+
+Packaging and identity release for the Ari IME rename. Typing behavior is
+unchanged.
+
+- Replace the legacy internal identifier everywhere with `ari-ime`, including
+  the Fcitx5 addon, input method descriptor, shared
+  library, icon, helper commands, CMake targets, and release package names.
+- Keep the KDE/Fcitx5 display name as `Ari IME`; only the machine-facing ID is
+  `ari-ime`, so the installed input method is no longer presented under the
+  old project folder name.
+- Move Ari-owned user data and environment variables to the `ari-ime` names,
+  and synchronize the native release and `@ari-ime/wasm` package at 2.6.1.
+- Existing learned data from the previous user-data directory is not migrated
+  automatically because the old identifier is intentionally removed.
+
 ## 2.6.0 - 2026-08-23
 
 Hardening release from a full code audit of the engine, tooling, and
@@ -216,7 +232,7 @@ fixes below; the full regression suite passes.
 - Made pasted Emoji grapheme clusters safe to move and delete as one unit,
   including CRLF paste normalization.
 - Fixed the Fcitx5 addon descriptor to expose Ari's input method through its
-  installed `inputer-im.conf` entry (`OnDemand=True`); Fcitx can now load the
+  installed `ari-ime-im.conf` entry (`OnDemand=True`); Fcitx can now load the
   addon when Ari is selected instead of finding zero input methods.
 - Added a native, display-only candidate preview for completed Chinese results;
   it shows contextual alternatives without taking numeric keys away from the

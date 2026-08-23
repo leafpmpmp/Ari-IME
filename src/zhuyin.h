@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Kaiyasi
-#ifndef INPUTER_ZHUYIN_H
-#define INPUTER_ZHUYIN_H
+#ifndef ARI_IME_ZHUYIN_H
+#define ARI_IME_ZHUYIN_H
 
 #include <string>
 #include <unordered_map>
@@ -44,7 +44,7 @@ public:
 
     // Clear all internal buffers but keep settings + learned user dictionary.
     void resetAll();
-    void setKeyboardLayout(inputer::KeyboardLayout layout);
+    void setKeyboardLayout(ari_ime::KeyboardLayout layout);
 
     // Feed a single raw key (a printable ASCII character, e.g. 's', 'u', '3').
     void feedKey(char c);
@@ -149,7 +149,7 @@ private:
     bool loadUserPhraseCache();
 
     ChewingContext *ctx_ = nullptr;
-    inputer::KeyboardLayout layout_ = inputer::currentKeyboardLayout();
+    ari_ime::KeyboardLayout layout_ = ari_ime::currentKeyboardLayout();
     bool userPhraseCacheLoaded_ = false;
     std::unordered_set<std::string> userPhraseTexts_;
     // On legacy libchewing, only sidecar entries that also exist in the
@@ -164,4 +164,4 @@ private:
     std::deque<std::string> reverseReadingsOrder_;
 };
 
-#endif // INPUTER_ZHUYIN_H
+#endif // ARI_IME_ZHUYIN_H

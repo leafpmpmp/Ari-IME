@@ -108,20 +108,20 @@ struct AriWasmEngine {
 
 namespace {
 
-inputer::KeyboardLayout layoutFromInt(int value) {
-    constexpr int first = static_cast<int>(inputer::KeyboardLayout::Default);
-    constexpr int last = static_cast<int>(inputer::KeyboardLayout::Colemak);
+ari_ime::KeyboardLayout layoutFromInt(int value) {
+    constexpr int first = static_cast<int>(ari_ime::KeyboardLayout::Default);
+    constexpr int last = static_cast<int>(ari_ime::KeyboardLayout::Colemak);
     value = std::clamp(value, first, last);
-    return static_cast<inputer::KeyboardLayout>(value);
+    return static_cast<ari_ime::KeyboardLayout>(value);
 }
 
-inputer::ChinesePunctuationShortcut punctuationShortcutFromInt(int value) {
+ari_ime::ChinesePunctuationShortcut punctuationShortcutFromInt(int value) {
     constexpr int first = static_cast<int>(
-        inputer::ChinesePunctuationShortcut::ControlShift);
+        ari_ime::ChinesePunctuationShortcut::ControlShift);
     constexpr int last = static_cast<int>(
-        inputer::ChinesePunctuationShortcut::Disabled);
+        ari_ime::ChinesePunctuationShortcut::Disabled);
     value = std::clamp(value, first, last);
-    return static_cast<inputer::ChinesePunctuationShortcut>(value);
+    return static_cast<ari_ime::ChinesePunctuationShortcut>(value);
 }
 
 const char *invalidEngine() {

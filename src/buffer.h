@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Kaiyasi
-#ifndef INPUTER_BUFFER_H
-#define INPUTER_BUFFER_H
+#ifndef ARI_IME_BUFFER_H
+#define ARI_IME_BUFFER_H
 
 #include <string>
 #include <deque>
@@ -120,7 +120,7 @@ public:
         return true;
     }
     bool setChinesePunctuationShortcut(
-        inputer::ChinesePunctuationShortcut shortcut) {
+        ari_ime::ChinesePunctuationShortcut shortcut) {
         if (punctuationShortcut_ == shortcut) {
             return false;
         }
@@ -134,7 +134,7 @@ public:
         spaceCandidateMode_ = on;
         return true;
     }
-    bool setKeyboardLayout(inputer::KeyboardLayout layout);
+    bool setKeyboardLayout(ari_ime::KeyboardLayout layout);
     // The frontend disables learning for password and other sensitive fields.
     void setLearningAllowed(bool allowed) { learningAllowed_ = allowed; }
 
@@ -145,7 +145,7 @@ public:
     // False when the 注音 engine failed to load; the engine degrades to
     // plain-English passthrough and the frontend can warn the user once.
     bool engineReady() const { return zhuyin_.ok(); }
-    inputer::KeyboardLayout keyboardLayout() const { return layout_; }
+    ari_ime::KeyboardLayout keyboardLayout() const { return layout_; }
 
 private:
     enum class Token { Chinese, English };
@@ -296,11 +296,11 @@ private:
 
     bool forcedEnglish_ = false;
     bool fullWidthPunct_ = false;
-    inputer::ChinesePunctuationShortcut punctuationShortcut_ =
-        inputer::ChinesePunctuationShortcut::ControlShift;
+    ari_ime::ChinesePunctuationShortcut punctuationShortcut_ =
+        ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
     bool learningAllowed_ = true;
-    inputer::KeyboardLayout layout_ = inputer::KeyboardLayout::Default;
+    ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;
     std::vector<Cell> cells_;             // finalized pre-edit, before the live tail
     std::vector<Cell> tail_;              // cells parked AFTER the live tail while
@@ -329,4 +329,4 @@ private:
     Zhuyin zhuyin_;                      // live Chinese run; scratch while selecting
 };
 
-#endif // INPUTER_BUFFER_H
+#endif // ARI_IME_BUFFER_H
