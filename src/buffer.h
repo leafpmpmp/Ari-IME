@@ -159,6 +159,8 @@ private:
         bool chinese = false;
         std::string text;    // the displayed character (one codepoint)
         std::string reading; // canonical 注音 keys; trailing ' ' marks 一聲
+        std::string typed{}; // keys as actually typed, in input order (may be
+                             // out of canonical order); empty = use reading
         bool locked = false; // the user explicitly picked this character; pin it
                              // (as a single) whenever the run is re-fed, so it
                              // survives later picks elsewhere in the run.
@@ -179,8 +181,9 @@ private:
     KeyResult handleLiteralChar(char c);
     // Feed a complete, canonicalised syllable body into the live chewing run,
     // extending it so chewing's phrasing spans contiguous Chinese. English in
-    // front of it freezes the old run first, preserving order.
-    void integrateSyllable(const std::string &body);
+    // front of it freezes the old run first, preserving order. `typed` carries
+    // the keys as actually typed (may differ in order from `body`).
+    void integrateSyllable(const std::string &body, const std::string &typed);
     // Abandon the current 注音 hypothesis WITHOUT committing: the in-progress
     // syllable plus `trailing` become the live English tail after the run.
     KeyResult flipToEnglish(char trailing);
@@ -306,6 +309,8 @@ private:
     std::vector<Cell> tail_;              // cells parked AFTER the live tail while
                                           // inserting mid-string; empty otherwise
     std::vector<std::string> runReadings_; // readings parallel to the live run chars
+    std::vector<std::string> runTyped_;    // keys as typed, parallel to runReadings_;
+                                           // empty entries fall back to readings
     std::string englishBuf_;             // live English tail, after the chewing run
     std::string syl_;                    // raw keys of the in-progress 注音 syllable
     bool selecting_ = false;             // editing mode active (caret or picking)

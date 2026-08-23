@@ -498,6 +498,13 @@ std::pair<std::string, bool> readingBody(const std::string &reading) {
     return {reading, false};
 }
 
+// Same split for the keys as actually typed (Cell::typed), preferring it over
+// the canonical reading when a typed record was kept.
+std::pair<std::string, bool> typedBody(const std::string &typed,
+                                       const std::string &reading) {
+    return readingBody(typed.empty() ? reading : typed);
+}
+
 bool isAsciiLower(char c) {
     return c >= 'a' && c <= 'z';
 }
@@ -622,6 +629,7 @@ void Buffer::reset() {
     cells_.clear();
     tail_.clear();
     runReadings_.clear();
+    runTyped_.clear();
     englishBuf_.clear();
     syl_.clear();
     selecting_ = false;
@@ -669,19 +677,23 @@ void Buffer::moveAutoCommit() {
     auto chars = splitUtf8(zhuyin_.takeCommit());
     for (std::size_t i = 0; i < chars.size(); ++i) {
         std::string reading = i < runReadings_.size() ? runReadings_[i] : "";
-        cells_.push_back({true, chars[i], reading});
+        std::string typed = i < runTyped_.size() ? runTyped_[i] : "";
+        cells_.push_back({true, chars[i], reading, std::move(typed)});
     }
     std::size_t n = std::min(chars.size(), runReadings_.size());
     runReadings_.erase(runReadings_.begin(), runReadings_.begin() + n);
+    runTyped_.erase(runTyped_.begin(), runTyped_.begin() + n);
 }
 
 void Buffer::freezeRun() {
     auto chars = splitUtf8(zhuyin_.preedit());
     for (std::size_t i = 0; i < chars.size(); ++i) {
         std::string reading = i < runReadings_.size() ? runReadings_[i] : "";
-        cells_.push_back({true, chars[i], reading});
+        std::string typed = i < runTyped_.size() ? runTyped_[i] : "";
+        cells_.push_back({true, chars[i], reading, std::move(typed)});
     }
     runReadings_.clear();
+    runTyped_.clear();
     zhuyin_.resetAll();
 }
 
@@ -1159,7 +1171,7 @@ KeyResult Buffer::handleChar(char c, bool literal) {
         ari_ime::needsBodyBeforeToneCompletion(ari_ime::currentKeyboardLayout());
     if ((!needsBody || ari_ime::hasMedialOrFinal(body)) &&
         syllableConverts(body)) {
-        integrateSyllable(body);
+        integrateSyllable(body, syl_);
         syl_.clear();
     }
     return {true, false, {}, true};
@@ -1186,7 +1198,8 @@ KeyResult Buffer::handleLiteralChar(char c) {
     return flipToEnglish(c);
 }
 
-void Buffer::integrateSyllable(const std::string &body) {
+void Buffer::integrateSyllable(const std::string &body,
+                               const std::string &typed) {
     if (!englishBuf_.empty()) {
         // English sits in front of this new syllable: it can't merge with the
         // earlier run, so freeze "run + English" into cells_ and start fresh.
@@ -1194,15 +1207,18 @@ void Buffer::integrateSyllable(const std::string &body) {
         freezeEnglish();
         zhuyin_.feedSequence(body);
         runReadings_ = {body};
+        runTyped_ = {typed};
     } else if (zhuyin_.hasConverted()) {
         // Extend the live run so chewing's phrasing spans it.
         for (char k : body) {
             zhuyin_.handleDefault(static_cast<int>(k));
         }
         runReadings_.push_back(body);
+        runTyped_.push_back(typed);
     } else {
         zhuyin_.feedSequence(body);
         runReadings_ = {body};
+        runTyped_ = {typed};
     }
     // Keep libchewing's contextual conversion. On older libchewing releases
     // only, also apply Ari's explicit preference sidecar; newer releases rank
@@ -1418,6 +1434,7 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         }
         zhuyin_.feedSequence(syllable);
         runReadings_ = {syllable};
+        runTyped_ = {body + std::string(1, tone)};
         zhuyin_.promoteUserPhrases();
         moveAutoCommit();
         token_ = Token::Chinese;
@@ -1454,6 +1471,7 @@ bool Buffer::tryPeelEnglish(char tone, KeyResult &out) {
         }
         zhuyin_.feedSequence(syllable);
         runReadings_ = {syllable};
+        runTyped_ = {body + std::string(1, tone)};
         zhuyin_.promoteUserPhrases();
         moveAutoCommit();
         token_ = Token::Chinese;
@@ -1486,6 +1504,7 @@ bool Buffer::tryPeelEnglishTone1(KeyResult &out) {
         zhuyin_.feedSequence(syllable);
         zhuyin_.handleSpace();
         runReadings_ = {syllable + " "};
+        runTyped_ = {body + " "};
         zhuyin_.promoteUserPhrases();
         moveAutoCommit();
         token_ = Token::Chinese;
@@ -1510,6 +1529,7 @@ KeyResult Buffer::handleSpace() {
                 freezeEnglish();
                 zhuyin_.feedSequence(body);
                 runReadings_.clear();
+                runTyped_.clear();
             } else if (zhuyin_.hasConverted()) {
                 for (char k : body) {
                     zhuyin_.handleDefault(static_cast<int>(k));
@@ -1517,9 +1537,11 @@ KeyResult Buffer::handleSpace() {
             } else {
                 zhuyin_.feedSequence(body);
                 runReadings_.clear();
+                runTyped_.clear();
             }
             zhuyin_.handleSpace();             // 一聲
             runReadings_.push_back(body + " "); // ' ' marks a 一聲 reading
+            runTyped_.push_back(syl_ + " ");    // typed order, same sentinel
             zhuyin_.promoteUserPhrases();
             moveAutoCommit();
             syl_.clear();
@@ -1679,6 +1701,10 @@ KeyResult Buffer::handleBackspace() {
         zhuyin_.handleBackspace();
         if (!runReadings_.empty()) {
             runReadings_.pop_back();
+        }
+        // Keep the parallel typed-keys array in lockstep with runReadings_.
+        if (!runTyped_.empty()) {
+            runTyped_.pop_back();
         }
         return {true, false, {}, true};
     }
@@ -1862,7 +1888,10 @@ void Buffer::buildSelCands() {
 
     // Last entry: revert this character to its raw 注音 keys (English). down = -1
     // marks it; picking it explodes the cell instead of choosing a homophone.
-    std::string raw = readingBody(cells_[selCursor_].reading).first;
+    // Prefer the keys as actually typed so an out-of-order syllable (e.g. "ox"
+    // for ㄜ) shows itself instead of the canonicalized form ("eo").
+    std::string raw = typedBody(cells_[selCursor_].typed,
+                                cells_[selCursor_].reading).first;
     if (!raw.empty()) {
         selCands_.push_back(
             {raw, "原始鍵 " + raw, -1, -1, targetOffset,
@@ -2229,9 +2258,9 @@ KeyResult Buffer::undoSelection() {
     selectionUndo_.pop_back();
     exitSelection();
     cells_ = std::move(snapshot.cells);
-    nextSelectionGroup_ = snapshot.nextSelectionGroup;
-    tail_.clear();
     runReadings_.clear();
+    runTyped_.clear();
+    tail_.clear();
     englishBuf_.clear();
     syl_.clear();
     token_ = Token::Chinese;
@@ -2361,17 +2390,17 @@ KeyResult Buffer::beginInsert(int pos, const fcitx::Key &key) {
 }
 
 KeyResult Buffer::revertCellToEnglish() {
-    std::string reading = cells_[selCursor_].reading;
-    if (!reading.empty() && reading.back() == ' ') {
-        reading.pop_back(); // drop the 一聲 sentinel; the body is the raw keys
-    }
-    if (reading.empty()) {
+    auto [typed, tone1] =
+        typedBody(cells_[selCursor_].typed, cells_[selCursor_].reading);
+    (void)tone1; // 一聲 has no key of its own; the body alone explodes
+    if (typed.empty()) {
         return {true, false, {}, true};
     }
     cells_.erase(cells_.begin() + selCursor_);
     int at = selCursor_;
-    for (char c : reading) {
-        cells_.insert(cells_.begin() + at, {false, std::string(1, c), {}});
+    for (char c : typed) {
+        cells_.insert(cells_.begin() + at,
+                      {false, std::string(1, c), {}});
         ++at;
     }
     runLoaded_ = false;   // cell layout changed
@@ -2484,8 +2513,7 @@ KeyResult Buffer::reinterpretFromCell() {
     // Replace the consumed cells with a single Chinese cell, then open its
     // candidates so the user can confirm or pick another homophone.
     cells_.erase(cells_.begin() + selCursor_, cells_.begin() + consumeTo + 1);
-    cells_.insert(cells_.begin() + selCursor_, {true, {}, found});
-    runLoaded_ = false; // cell layout changed
+    cells_.insert(cells_.begin() + selCursor_, {true, {}, found, raw});
     loadCellCandidates();
     // Fill the new cell's text from chewing's converted buffer (one character at
     // the cursor offset), not the candidate list (whose top item may be a phrase).
@@ -2496,7 +2524,7 @@ KeyResult Buffer::reinterpretFromCell() {
         // single-codepoint placeholder instead of storing the multi-byte raw
         // syllable in a Chinese cell: applyRunToCells maps one codepoint per
         // cell, and an oversized text here would leave stale glyphs behind.
-        cells_[selCursor_] = {true, "？", found};
+        cells_[selCursor_] = {true, "？", found, raw};
         return {true, false, {}, true};
     }
     cells_[selCursor_].text = chars[k];
