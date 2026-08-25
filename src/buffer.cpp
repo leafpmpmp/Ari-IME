@@ -1816,12 +1816,10 @@ void Buffer::chineseRunAround(int idx, int &start, int &end) const {
 }
 
 void Buffer::chooseGlobalCandidate(int globalIdx) {
-    int perPage = zhuyin_.candPerPage();
-    int targetPage = perPage > 0 ? globalIdx / perPage : 0;
-    while (zhuyin_.candCurrentPage() < targetPage) {
-        zhuyin_.nextPage();
-    }
-    zhuyin_.chooseCandidate(perPage > 0 ? globalIdx % perPage : globalIdx);
+    // chewing_cand_choose_by_index takes a global index into nTotalChoice.
+    // Do not page + pass idx%perPage — that is DoSelect's number-key path and
+    // remaps high indices onto page-1 slots.
+    zhuyin_.chooseCandidate(globalIdx);
 }
 
 void Buffer::buildSelCands() {

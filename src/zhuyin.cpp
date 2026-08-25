@@ -690,12 +690,9 @@ int Zhuyin::promoteUserPhrases() {
         for (int i = 0; i < best.down; ++i) {
             handleDown();
         }
-        const int perPage = candPerPage();
-        const int targetPage = perPage > 0 ? best.index / perPage : 0;
-        while (candCurrentPage() < targetPage) {
-            nextPage();
-        }
-        chooseCandidate(perPage > 0 ? best.index % perPage : best.index);
+        // chewing_cand_choose_by_index expects a global index; do not page and
+        // pass best.index % perPage (that remaps onto page-1 slots).
+        chooseCandidate(best.index);
         ++applied;
     }
 

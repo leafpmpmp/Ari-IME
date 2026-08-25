@@ -210,17 +210,12 @@ install(TARGETS ari-ime-dict
 )
 
 # --- Maintainer-only local tests ---
-set(ARI_IME_LOCAL_TESTS_AVAILABLE TRUE)
-foreach(ari_ime_local_test IN ITEMS
-        test/test_buffer.cpp
-        test/test_layout.cpp
-        test/test_user_data.cpp
-        test/test_enable_input_method.sh
-        test/test_dict_tool.sh)
-    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${ari_ime_local_test}")
-        set(ARI_IME_LOCAL_TESTS_AVAILABLE FALSE)
-    endif()
-endforeach()
+# Buffer regression may be published alone for review; other suite members stay
+# optional and are only wired when their sources exist.
+set(ARI_IME_LOCAL_TESTS_AVAILABLE FALSE)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_buffer.cpp")
+    set(ARI_IME_LOCAL_TESTS_AVAILABLE TRUE)
+endif()
 
 if(BUILD_TESTING AND NOT ARI_IME_LOCAL_TESTS_AVAILABLE)
     message(WARNING
@@ -251,52 +246,60 @@ if(BUILD_TESTING)
     add_test(NAME buffer COMMAND test_buffer)
     ari_ime_configure_test(buffer)
 
-    add_executable(test_layout
-        test/test_layout.cpp
-        src/layout.cpp
-    )
-    target_include_directories(test_layout PRIVATE src)
-    target_link_libraries(test_layout
-        PRIVATE
-            Fcitx5::Config
-            PkgConfig::Chewing
-    )
-    ari_ime_enable_warnings(test_layout)
-    ari_ime_enable_sanitizers(test_layout)
-    ari_ime_enable_coverage(test_layout)
-    add_test(NAME layout COMMAND test_layout)
-    ari_ime_configure_test(layout)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_layout.cpp")
+        add_executable(test_layout
+            test/test_layout.cpp
+            src/layout.cpp
+        )
+        target_include_directories(test_layout PRIVATE src)
+        target_link_libraries(test_layout
+            PRIVATE
+                Fcitx5::Config
+                PkgConfig::Chewing
+        )
+        ari_ime_enable_warnings(test_layout)
+        ari_ime_enable_sanitizers(test_layout)
+        ari_ime_enable_coverage(test_layout)
+        add_test(NAME layout COMMAND test_layout)
+        ari_ime_configure_test(layout)
+    endif()
 
-    add_executable(test_user_data
-        test/test_user_data.cpp
-        src/layout.cpp
-        src/user_data.cpp
-        src/buffer.cpp
-        src/zhuyin.cpp
-    )
-    target_include_directories(test_user_data PRIVATE src)
-    target_link_libraries(test_user_data
-        PRIVATE
-            Fcitx5::Utils
-            Fcitx5::Config
-            PkgConfig::Chewing
-    )
-    ari_ime_enable_warnings(test_user_data)
-    ari_ime_enable_sanitizers(test_user_data)
-    ari_ime_enable_coverage(test_user_data)
-    add_test(NAME user_data COMMAND test_user_data)
-    ari_ime_configure_test(user_data)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_user_data.cpp")
+        add_executable(test_user_data
+            test/test_user_data.cpp
+            src/layout.cpp
+            src/user_data.cpp
+            src/buffer.cpp
+            src/zhuyin.cpp
+        )
+        target_include_directories(test_user_data PRIVATE src)
+        target_link_libraries(test_user_data
+            PRIVATE
+                Fcitx5::Utils
+                Fcitx5::Config
+                PkgConfig::Chewing
+        )
+        ari_ime_enable_warnings(test_user_data)
+        ari_ime_enable_sanitizers(test_user_data)
+        ari_ime_enable_coverage(test_user_data)
+        add_test(NAME user_data COMMAND test_user_data)
+        ari_ime_configure_test(user_data)
+    endif()
 
-    add_test(
-        NAME profile_helper
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_enable_input_method.sh"
-    )
-    add_test(
-        NAME dict_tool
-        COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_dict_tool.sh"
-                "$<TARGET_FILE:ari-ime-dict>"
-    )
-    ari_ime_configure_test(dict_tool)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_enable_input_method.sh")
+        add_test(
+            NAME profile_helper
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_enable_input_method.sh"
+        )
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_dict_tool.sh")
+        add_test(
+            NAME dict_tool
+            COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_dict_tool.sh"
+                    "$<TARGET_FILE:ari-ime-dict>"
+        )
+        ari_ime_configure_test(dict_tool)
+    endif()
 endif()
 
 if(ARI_IME_ENABLE_FUZZING AND EXISTS
