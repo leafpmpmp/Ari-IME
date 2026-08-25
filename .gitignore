@@ -4,8 +4,11 @@ pkg/
 *.pkg.tar.*
 *.gcov
 
-# Maintainer-only tests stay in local working trees and are not published.
-/test/
+# Maintainer-only tests stay private; only the buffer regression case below
+# is published for this fix review.
+/test/*
+!/test/test_buffer.cpp
+!/test/test_common.h
 /wasm/test/
 result
 result-*
