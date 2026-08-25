@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.6.2 - 2026-08-25
+
+Bug-fix release restoring the test suite and fixing two candidate-window
+defects. Contributed by @HongyiHank and @afcidk.
+
+- Fix cross-page candidate selection: picking a candidate on page 2 or later
+  chose the same slot from page 1 instead of the highlighted entry. The
+  global index is now passed straight to `chewing_cand_choose_by_index`
+  instead of being remapped through a page-local remainder.
+- Keep typed key order for out-of-order Bopomofo input (e.g. typing `ox` for
+  ㄜㄌ): the "raw keys" candidate entry and revert-to-English action now show
+  and explode the keys as actually typed rather than the canonicalized order.
+- Restore `test/` with the buffer regression suite, including a
+  `test_candidate_paging` case covering the cross-page pick fix.
+
 ## 2.6.1 - 2026-08-23
 
 Packaging and identity release for the Ari IME rename. Typing behavior is

@@ -1,3 +1,13 @@
+fcitx5-ari-ime (2.6.2) unstable; urgency=medium
+
+  * Fix cross-page candidate selection: picks on page 2 or later no longer
+    land on the same slot of page 1; the global index is passed to libchewing.
+  * Keep typed key order in the raw-keys candidate entry and revert-to-
+    English action for out-of-order Bopomofo input.
+  * Restore the buffer regression test suite with a cross-page paging case.
+
+ -- Kaiyasi <zengcode0315@gmail.com>  Tue, 25 Aug 2026 00:00:00 +0000
+
 fcitx5-ari-ime (2.6.1) unstable; urgency=medium
 
   * Replace the legacy internal identifier with ari-ime throughout
