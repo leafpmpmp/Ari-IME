@@ -3,9 +3,13 @@
 #ifndef ARI_IME_ARI_IME_H
 #define ARI_IME_ARI_IME_H
 
+#include <string>
+#include <utility>
+
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/iniparser.h>
 #include <fcitx-config/option.h>
+#include <fcitx-config/rawconfig.h>
 #include <fcitx-utils/i18n.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addoninstance.h>
@@ -19,50 +23,112 @@
 
 class AriImeEngine;
 
+namespace ari_ime {
+
+// Every option's description doubles as its label in the configuration UI, and
+// the KDE System Settings module lays that label out on a single unwrapped
+// line. A paragraph-length description therefore stretches the page well past
+// the right edge of the window. Keep descriptions to a short label and hang the
+// full explanation off a tooltip instead.
+//
+// fcitx::ToolTipAnnotation cannot be used directly here: it has no default
+// constructor (which FCITX_CONFIGURATION's option templates want) and it cannot
+// be combined with the enum I18N annotations the combo-box options need. This
+// wrapper does both, holding whichever annotation the option already carries.
+//
+// `base_` is held by composition rather than inheritance, and is mutable: fcitx
+// declares an annotation's dumpDescription() const in some releases and
+// non-const in others (its own Option stores the annotation in a mutable member
+// for exactly that reason). Composing sidesteps the difference, so this header
+// builds against the fcitx5 of every distribution the project targets rather
+// than only the newest one. `Base` must therefore be stateless and default
+// constructible — true of NoAnnotation and of the enum I18N annotations.
+template <typename Base = fcitx::NoAnnotation>
+struct TooltipAnnotation {
+    TooltipAnnotation() = default;
+    explicit TooltipAnnotation(std::string tooltip)
+        : tooltip_(std::move(tooltip)) {}
+
+    bool skipDescription() const { return false; }
+    bool skipSave() const { return false; }
+    void dumpDescription(fcitx::RawConfig &config) const {
+        base_.dumpDescription(config); // Enum/EnumI18n, when Base supplies them
+        if (!tooltip_.empty()) {
+            config.setValueByPath("Tooltip", tooltip_);
+        }
+    }
+
+private:
+    mutable Base base_{};
+    std::string tooltip_;
+};
+
+// Shorthands so the option declarations below stay readable. The key-list one
+// is spelled out rather than using fcitx::KeyListOptionWithAnnotation, which is
+// newer than the plain fcitx::KeyListOption this file used before; the expansion
+// is identical and needs only long-standing fcitx5 names.
+template <typename T, typename Base = fcitx::NoAnnotation>
+using TooltipOption = fcitx::OptionWithAnnotation<T, TooltipAnnotation<Base>>;
+using KeyListTooltipOption =
+    fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>,
+                  fcitx::DefaultMarshaller<fcitx::KeyList>,
+                  TooltipAnnotation<>>;
+
+} // namespace ari_ime
+
 // User-facing configuration, surfaced in fcitx5-configtool. Keyboard layout
 // choices are backed by layout.cpp so key classification and chewing's KB type
-// stay in sync.
+// stay in sync. Descriptions are short labels; see TooltipAnnotation above for
+// why the details live in tooltips.
 FCITX_CONFIGURATION(
     AriImeConfig,
-    fcitx::OptionWithAnnotation<ari_ime::KeyboardLayout,
-                                ari_ime::KeyboardLayoutI18NAnnotation>
+    ari_ime::TooltipOption<ari_ime::KeyboardLayout,
+                           ari_ime::KeyboardLayoutI18NAnnotation>
         keyboardLayout{
-        this, "KeyboardLayout", _("Keyboard layout"), ari_ime::KeyboardLayout::Default};
-    fcitx::Option<bool> fullWidthPunctuation{
-        this, "FullWidthPunctuation",
-        _("Always use full-width Chinese punctuation without a modifier. Off keeps ordinary punctuation literal; the configured ChinesePunctuationShortcut plus a punctuation key produces its Chinese form temporarily."),
-        false};
-    fcitx::OptionWithAnnotation<
-        ari_ime::ChinesePunctuationShortcut,
-        ari_ime::ChinesePunctuationShortcutI18NAnnotation>
+        this, "KeyboardLayout", _("Keyboard layout"),
+        ari_ime::KeyboardLayout::Default, {}, {},
+        ari_ime::TooltipAnnotation<ari_ime::KeyboardLayoutI18NAnnotation>(
+            _("Bopomofo key arrangement. This drives both Ari's own key classification and libchewing's keyboard type, so they always match."))};
+    ari_ime::TooltipOption<bool> fullWidthPunctuation{
+        this, "FullWidthPunctuation", _("Always use full-width punctuation"),
+        false, {}, {},
+        ari_ime::TooltipAnnotation<>(
+            _("Use full-width Chinese punctuation without a modifier. Off keeps ordinary punctuation literal; the configured Chinese punctuation shortcut plus a punctuation key produces its Chinese form temporarily."))};
+    ari_ime::TooltipOption<ari_ime::ChinesePunctuationShortcut,
+                           ari_ime::ChinesePunctuationShortcutI18NAnnotation>
         chinesePunctuationShortcut{
         this, "ChinesePunctuationShortcut",
-        _("Modifier used for temporary Chinese punctuation (default Ctrl+Shift). Choose Alt+Shift or another option if an application uses the default gesture. Alt+[ and Alt+] are reserved for Chinese corner quotes."),
-        ari_ime::ChinesePunctuationShortcut::ControlShift};
-    fcitx::Option<bool> spaceCandidateMode{
-        this, "SpaceCandidateMode",
-        _("Use Space to open Chinese candidates after a complete syllable. Off keeps Ari's mixed-input Space-as-tone-one and literal-space behavior; Enter remains the commit key."),
-        false};
-    fcitx::KeyListOption reconversionKey{
-        this, "ReconversionKey",
-        _("Re-open selected short Chinese text for candidate correction. The default is Control+Alt+R; clear it to avoid reserving a shortcut."),
-        {fcitx::Key("Control+Alt+R")}, fcitx::KeyListConstrain()};
-    fcitx::Option<bool> autoLearn{
-        this, "AutoLearn",
-        _("Learn accepted Chinese choices locally. Turn this off to keep the personal dictionary unchanged; sensitive fields never learn regardless of this setting."),
-        true};
-    fcitx::Option<bool> showStatusLine{
-        this, "ShowStatusLine",
-        _("Show composition status text in the auxiliary line (for example 中 · 大千 · 半形標點) while composing."),
-        false};
-    fcitx::Option<bool> showPendingZhuyin{
-        this, "ShowPendingZhuyin",
-        _("Show the Bopomofo symbols of the pending syllable in a small box near the cursor while typing."),
-        false};
-    fcitx::KeyListOption fullWidthPunctuationToggle{
+        _("Chinese punctuation shortcut"),
+        ari_ime::ChinesePunctuationShortcut::ControlShift, {}, {},
+        ari_ime::TooltipAnnotation<
+            ari_ime::ChinesePunctuationShortcutI18NAnnotation>(
+            _("Modifier used for temporary Chinese punctuation (default Ctrl+Shift). Choose Alt+Shift or another option if an application uses the default gesture. Alt+[ and Alt+] are reserved for Chinese corner quotes."))};
+    ari_ime::TooltipOption<bool> spaceCandidateMode{
+        this, "SpaceCandidateMode", _("Space opens candidates"), false, {}, {},
+        ari_ime::TooltipAnnotation<>(
+            _("Use Space to open Chinese candidates after a complete syllable. Off keeps Ari's mixed-input Space-as-tone-one and literal-space behavior; Enter remains the commit key."))};
+    ari_ime::KeyListTooltipOption reconversionKey{
+        this, "ReconversionKey", _("Reconversion shortcut"),
+        {fcitx::Key("Control+Alt+R")}, fcitx::KeyListConstrain(), {},
+        ari_ime::TooltipAnnotation<>(
+            _("Re-open selected short Chinese text for candidate correction. The default is Control+Alt+R; clear it to avoid reserving a shortcut."))};
+    ari_ime::TooltipOption<bool> autoLearn{
+        this, "AutoLearn", _("Learn accepted choices locally"), true, {}, {},
+        ari_ime::TooltipAnnotation<>(
+            _("Adapt the personal dictionary to the Chinese choices you accept. Turn this off to keep it unchanged; sensitive fields never learn regardless of this setting."))};
+    ari_ime::TooltipOption<bool> showStatusLine{
+        this, "ShowStatusLine", _("Show composition status"), false, {}, {},
+        ari_ime::TooltipAnnotation<>(
+            _("Show composition status text in the auxiliary line (for example 中 · 大千 · 半形標點) while composing."))};
+    ari_ime::TooltipOption<bool> showPendingZhuyin{
+        this, "ShowPendingZhuyin", _("Show pending Bopomofo"), false, {}, {},
+        ari_ime::TooltipAnnotation<>(
+            _("Show the Bopomofo symbols of the pending syllable in a small box near the cursor while typing."))};
+    ari_ime::KeyListTooltipOption fullWidthPunctuationToggle{
         this, "FullWidthPunctuationToggle",
-        _("Optional shortcut to toggle full-width punctuation on/off. Empty by default so no application shortcut is reserved; set for example Control+period. A modifier is required."),
-        {}, fcitx::KeyListConstrain()};);
+        _("Full-width punctuation toggle"), {}, fcitx::KeyListConstrain(), {},
+        ari_ime::TooltipAnnotation<>(
+            _("Optional shortcut to turn full-width punctuation on and off. Empty by default so no application shortcut is reserved; set for example Control+period. A modifier is required."))};);
 
 // Per-input-context state, owned by fcitx and created on demand.
 class AriImeState : public fcitx::InputContextProperty {

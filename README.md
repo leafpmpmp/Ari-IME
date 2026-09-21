@@ -28,7 +28,10 @@ phrasing and per-user learning.
 - **Candidate re-selection anywhere** — press ↓/←/→ to open a cursor that walks
   the whole pre-edit and re-pick any character or phrase; phrase recommendations
   that contain the focused character remain available even at the end of a
-  word, and earlier picks stay pinned. Candidates can be picked by number key or
+  word, and earlier picks stay pinned. Picking a candidate leaves the caret on
+  the character right after the text it rewrote, so correcting something in the
+  middle of a sentence keeps editing there instead of jumping to the end; press
+  End (or Esc) to go back to appending. Candidates can be picked by number key or
   direct click/touch, and multi-page lists show their current page in the
   auxiliary line. The labeled `原始鍵 ...` candidate restores a converted
   character back to its raw keys. Literal punctuation cells use the same picker:
@@ -392,9 +395,24 @@ fcitx5-remote -s ari-ime
 fcitx5-remote -n   # should print: ari-ime
 ```
 
-Per-addon options (keyboard layout, Chinese-punctuation shortcut, Space
-candidate mode, full-width punctuation and AutoLearn) appear under the addon's
-config page.
+### Settings
+
+The addon's config page lists these options. Each label is deliberately short so
+the page fits inside the settings window; the details below are also attached to
+every option as a tooltip, which `fcitx5-config-qt` shows on hover (KDE's System
+Settings module does not render tooltips yet).
+
+| Option | Default | What it does |
+|--------|---------|--------------|
+| Keyboard layout | 大千 | Bopomofo key arrangement. Drives both Ari's key classification and libchewing's keyboard type. |
+| Always use full-width punctuation | off | Full-width Chinese punctuation without a modifier. Off keeps ordinary punctuation literal and reserves the Chinese form for the shortcut below. |
+| Chinese punctuation shortcut | Ctrl+Shift | Modifier that temporarily produces the Chinese form of a punctuation key. Pick another one if an application already uses it. `Alt+[` / `Alt+]` stay reserved for corner quotes. |
+| Space opens candidates | off | Space opens the candidate window after a complete syllable. Off keeps Ari's Space-as-一聲 and literal-space behavior. Enter commits either way. |
+| Reconversion shortcut | Control+Alt+R | Re-opens a short selected Chinese range for candidate correction. Clear it to reserve no shortcut. |
+| Learn accepted choices locally | on | Adapts the personal dictionary to the Chinese you accept. Sensitive fields never learn regardless of this setting. |
+| Show composition status | off | Shows `中 · 大千 · 半形標點`-style status in the auxiliary line while composing. |
+| Show pending Bopomofo | off | Shows the symbols of the pending syllable near the cursor while typing. |
+| Full-width punctuation toggle | unset | Optional shortcut that turns full-width punctuation on and off. Empty by default so no application shortcut is reserved; a modifier is required. |
 
 ## Tests
 

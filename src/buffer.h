@@ -271,6 +271,11 @@ private:
     KeyResult moveCaretByPhrase(int direction);
     std::vector<int> phraseBoundaries();
     KeyResult pickCandidate(int pageIndex); // pick a candidate on the current page
+    // Close the candidate window after a completed pick and stay in caret mode
+    // with the caret parked at cell index `caret` — the cell just after the text
+    // the pick rewrote. Correction is a mid-string operation, so the caret must
+    // stay where the user was working instead of snapping back to the end.
+    void finishPickAt(int caret);
     KeyResult forgetHighlightedCandidate();
     void rememberSelectionUndo();
     void clearSelectionUndo();

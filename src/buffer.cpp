@@ -2201,7 +2201,7 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
         if (target >= 0 && target < static_cast<int>(cells_.size())) {
             cells_[target] = {false, sc.text, {}};
         }
-        exitSelection();
+        finishPickAt(target + 1);
         return {true, false, {}, true};
     }
     if (sc.down < 0) {
@@ -2234,11 +2234,32 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
         cells_[j].locked = true;
         cells_[j].selectionGroup = selectionGroup;
     }
-    // A completed pick is the common exit point from correction: return to the
-    // normal append-at-end path so the next printable key continues the sentence.
-    // Users who want to fix another cell can move there and reopen candidates.
-    exitSelection();
+    // A completed pick closes the candidate window but keeps caret mode, with the
+    // caret on the character right after the text that was just rewritten. The
+    // user corrected something mid-sentence, so that is where editing continues;
+    // End (or Escape) still returns to appending at the tail.
+    finishPickAt(pickedStart + picked);
     return {true, false, {}, true};
+}
+
+void Buffer::finishPickAt(int caret) {
+    candOpen_ = false;
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
+    if (cells_.empty()) {
+        exitSelection();
+        return;
+    }
+    const int n = static_cast<int>(cells_.size());
+    caretPos_ = std::clamp(caret, 0, n);
+    // The caret sits BETWEEN cells; selCursor_ names a cell, so park it on the
+    // one the caret points at (the last cell when the caret is at the very end).
+    selCursor_ = std::min(caretPos_, n - 1);
+    // Leave chewing's own candidate window closed. The run stays loaded, but
+    // every path that reopens candidates (openCandidatesAt / moveSelCursor)
+    // clears runLoaded_ first, so a later pick always re-feeds from the cells.
+    zhuyin_.closeCandidates();
 }
 
 void Buffer::rememberSelectionUndo() {

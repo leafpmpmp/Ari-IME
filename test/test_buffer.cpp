@@ -879,6 +879,89 @@ void test_phrase_pick() {
              "typing after end-of-line phrase pick appends at tail");
 }
 
+// Correcting a character is a mid-string edit: the caret belongs on the
+// character right after the one that was fixed, so the next keystroke continues
+// there. It used to snap to the end of the pre-edit no matter where the user
+// was working.
+void test_pick_leaves_caret_after_correction() {
+    const std::string bu = bu4_default();
+
+    Sim s;
+    s.type("su3cl31j4"); // 你好 + one more character
+    const std::string composed = s.preedit();
+    check(utf8_count(composed) == 3,
+          "caret-after-pick setup composes three characters");
+
+    s.key(FcitxKey_Home); // caret mode, caret before the first character
+    s.key(FcitxKey_Down); // open candidates for the first character
+    check(s.b.isPicking(), "caret-after-pick setup opens the candidate window");
+    const int niIndex = find_visible_candidate(s.cand(), "妳");
+    check(niIndex >= 0, "visible candidates include 妳 for the caret test");
+    KeyResult picked = s.b.selectCandidate(niIndex);
+    check(picked.handled, "caret test picks 妳 directly");
+
+    check(!s.b.isPicking(), "a completed pick closes the candidate window");
+    check(s.b.isEditing(), "a completed pick stays in caret editing");
+    check(s.b.caretChar() == 1,
+          "the caret lands on the character after the corrected one");
+
+    // Typing resumes at the caret, not at the end of the line.
+    s.type("1j4");
+    check_eq(s.preedit(), "妳" + bu + utf8_char_at(composed, 1) +
+                              utf8_char_at(composed, 2),
+             "typing after a mid-string pick inserts at the caret");
+
+    // A phrase pick spans several cells; the caret clears the whole phrase.
+    Sim phrase;
+    phrase.type("su3cl31j4");
+    phrase.key(FcitxKey_Home);
+    phrase.key(FcitxKey_Down);
+    const int phraseIndex = find_visible_candidate(phrase.cand(), "妳好");
+    if (phraseIndex >= 0) {
+        check(phrase.b.selectCandidate(phraseIndex).handled,
+              "caret test picks the 妳好 phrase");
+        check(phrase.b.caretChar() == 2,
+              "the caret lands after the whole phrase a pick rewrote");
+    }
+
+    // Punctuation cells use the same picker and must behave the same way.
+    Sim punct;
+    punct.key('[');  // a literal punctuation cell
+    punct.type("su3cl3");
+    punct.key(FcitxKey_Home);
+    punct.key(FcitxKey_Down); // candidates for the punctuation cell
+    const auto punctCands = punct.cand();
+    check(!punctCands.empty(), "punctuation cell opens its own candidates");
+    int variant = -1;
+    for (int i = 0; i < static_cast<int>(punctCands.size()); ++i) {
+        if (punctCands[i] != "[") {
+            variant = i;
+            break;
+        }
+    }
+    check(variant >= 0, "punctuation picker offers another variant");
+    check(punct.b.selectCandidate(variant).handled,
+          "caret test picks a punctuation variant");
+    check_eq(utf8_char_at(punct.preedit(), 0), punctCands[variant],
+             "punctuation pick rewrites the focused cell");
+    check(punct.b.caretChar() == 1,
+          "the caret lands after a corrected punctuation cell too");
+
+    // Fixing the final character still leaves the caret at the end, so the
+    // common "correct the last character, keep typing" flow is unchanged.
+    Sim last;
+    last.type("su3cl3");
+    last.key(FcitxKey_Down); // caret at the end -> candidates for the last cell
+    const int haoIndex = find_visible_candidate(last.cand(), "郝");
+    check(haoIndex >= 0, "visible candidates include 郝 for the caret test");
+    check(last.b.selectCandidate(haoIndex).handled, "caret test picks 郝");
+    check(last.b.caretChar() == 2,
+          "correcting the last character leaves the caret at the end");
+    last.type("1j4");
+    check_eq(last.preedit(), "你郝" + bu,
+             "typing after correcting the last character still appends");
+}
+
 void test_candidate_direct_selection() {
     const std::string bu = bu4_default();
 
@@ -909,11 +992,14 @@ void test_candidate_direct_selection() {
     check(r.handled, "direct candidate selection handles single candidate");
     check_eq(single.preedit(), "妳好",
              "direct single candidate rewrites focused cell");
-    check(!single.b.isEditing() && single.b.selectionChar() == -1,
-          "direct single candidate exits correction mode");
+    check(single.b.isEditing() && !single.b.isPicking() &&
+              single.b.selectionChar() == -1,
+          "direct single candidate closes the window but stays in caret mode");
+    check(single.b.caretChar() == 1,
+          "direct single candidate parks the caret after the fixed character");
     single.type("1j4");
-    check_eq(single.preedit(), "妳好" + bu,
-             "typing after direct pick resumes at end");
+    check_eq(single.preedit(), "妳" + bu + "好",
+             "typing after direct pick continues at the corrected position");
 
     Sim stale;
     stale.type("su3");
@@ -964,7 +1050,8 @@ void test_pin_earlier_pick() {
     KeyResult pinned = s.b.selectCandidate(niPinnedIndex);
     check(pinned.handled, "pinning test picks 妳 directly");
     check_eq(s.preedit(), "妳好", "picked 妳 single");
-    check(!s.b.isEditing(), "pick exits correction mode");
+    check(s.b.isEditing() && !s.b.isPicking() && s.b.caretChar() == 1,
+          "pick leaves the caret just after the character it fixed");
     // Reopen correction on 好 and fix it to 郝. The earlier 妳 pick must stay locked.
     s.key(FcitxKey_Home);
     s.key(FcitxKey_Right);
@@ -974,7 +1061,8 @@ void test_pin_earlier_pick() {
     KeyResult haoPinned = s.b.selectCandidate(haoPinnedIndex);
     check(haoPinned.handled, "pinning test picks 郝 directly");
     check_eq(s.preedit(), "妳郝", "earlier 妳 stays locked after picking 郝");
-    check(!s.b.isEditing(), "second pick returns to append mode");
+    check(s.b.isEditing() && !s.b.isPicking() && s.b.caretChar() == 2,
+          "fixing the final character leaves the caret at the end");
     s.type("1j4");
     check_eq(s.preedit(), "妳郝" + bu,
              "typing after reopened correction appends after fixed text");
@@ -1324,11 +1412,14 @@ void test_candidate_paging() {
     pick.key('3');
     check_eq(utf8_char_at(pick.preedit(), 0), want,
              "page2 digit 3 applies visible page2 slot 3");
-    check(!pick.b.isEditing() && pick.b.selectionChar() == -1,
-          "cross-page pick exits correction mode");
+    check(pick.b.isEditing() && !pick.b.isPicking() &&
+              pick.b.selectionChar() == -1,
+          "cross-page pick closes the window but stays in caret mode");
+    check(pick.b.caretChar() == 1,
+          "cross-page pick parks the caret after the fixed character");
     pick.type("1j4");
-    check_eq(pick.preedit(), want + "好" + bu,
-             "typing after cross-page pick appends at end");
+    check_eq(pick.preedit(), want + bu + "好",
+             "typing after cross-page pick continues at the corrected position");
 }
 
 void test_candidate_tab_navigation() {
@@ -2502,6 +2593,7 @@ int main() {
     test_live_matches_top_candidate();
     test_reconversion_core();
     test_phrase_pick();
+    test_pick_leaves_caret_after_correction();
     test_candidate_direct_selection();
     test_stale_candidate_activation_is_ignored();
     test_pin_earlier_pick();

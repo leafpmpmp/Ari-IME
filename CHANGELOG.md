@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Keep the pre-edit caret where the correction happened: after picking a
+  candidate the caret now sits on the character right after the text that was
+  rewritten, instead of snapping to the end of the pre-edit. Typing continues
+  at that point; End or Esc still returns to appending at the end.
+- Shorten every configuration label and move the full explanation into a
+  tooltip. The long descriptions were rendered as unwrapped single-line labels
+  by KDE's System Settings module, stretching the Ari IME page past the right
+  edge of the window. Setting keys and defaults are unchanged, so existing
+  `conf/ari-ime.conf` files keep working. The full text of each option is also
+  documented in README.md, since that module does not render tooltips.
+
 ## 2.6.2 - 2026-08-25
 
 Bug-fix release restoring the test suite and fixing two candidate-window
