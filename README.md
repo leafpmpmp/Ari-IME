@@ -460,6 +460,39 @@ to run just one part of the check. GitHub Actions uses the release, sanitizer,
 bounded-fuzz, and package modes as separate jobs in an Arch Linux container on
 pushes and pull requests.
 
+### Verifying on another distribution
+
+`scripts/check.sh` assumes an Arch-like host. To build and test this source tree
+on a Debian, Ubuntu, Arch or Fedora machine — useful because the fcitx5 headers
+it compiles against and the libchewing that ranks its candidates are whatever
+the distribution ships:
+
+```sh
+scripts/build-from-source.sh --deps
+```
+
+It prints a banner with the distribution, compiler, CMake, libchewing and fcitx5
+versions before building, so a failure is attributable to a specific dependency
+set; then it configures with `-DBUILD_TESTING=ON`, builds, stages an install
+into a throwaway prefix, and runs CTest. `--deps` installs the build
+dependencies for the detected distribution (needs sudo) and can be dropped on
+later runs.
+
+Add `--package` to build the distribution's own package instead — a `.deb` via
+`dpkg-buildpackage` on Debian and Ubuntu (whose `debian/rules` configures with
+`-DBUILD_TESTING=ON`, so debhelper runs CTest as part of the build), or a
+`.pkg.tar.zst` via `makepkg` on Arch. The Arch path builds from a copy of the
+tree rather than using the shipped `PKGBUILD` directly, because that one
+downloads the released tarball from GitHub and uses `$startdir/src` — this
+project's actual source directory — as its build directory.
+
+Copy the tree to the target machine first; the script builds what is on disk,
+not a release tarball:
+
+```sh
+rsync -a --exclude build --exclude '.git' ./ user@host:ari-ime/
+```
+
 For memory/undefined-behavior checks:
 
 ```sh

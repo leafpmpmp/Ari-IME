@@ -4,6 +4,27 @@ pkg/
 *.pkg.tar.*
 *.gcov
 
+# makepkg uses $startdir/src as its build directory, which collides with this
+# project's real source directory. Ignore what it drops there so a stray run
+# cannot be committed. (scripts/build-from-source.sh --package builds from a
+# copy instead, so it never touches src/.)
+/src/Ari-IME-*/
+/src/build/
+/src/*.tar.gz
+/*.tar.gz
+
+# dpkg-buildpackage artifacts
+obj-*/
+debian/.debhelper/
+debian/files
+debian/debhelper-build-stamp
+debian/fcitx5-ari-ime/
+debian/*.substvars
+debian/*.log
+*.deb
+*.buildinfo
+*.changes
+
 # Maintainer-only tests stay private; only the buffer regression case below
 # is published for this fix review.
 /test/*
