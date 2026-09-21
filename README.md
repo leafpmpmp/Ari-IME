@@ -31,7 +31,10 @@ phrasing and per-user learning.
   word, and earlier picks stay pinned. Picking a candidate leaves the caret on
   the character right after the text it rewrote, so correcting something in the
   middle of a sentence keeps editing there instead of jumping to the end; press
-  End (or Esc) to go back to appending. Candidates can be picked by number key or
+  End (or Esc) to go back to appending, or set **Caret after picking a
+  candidate** to *Jump to the end* to always land at the tail. ←/→ step to the
+  neighbouring character's candidates by default and can be set to turn
+  candidate pages instead. Candidates can be picked by number key or
   direct click/touch, and multi-page lists show their current page in the
   auxiliary line. The labeled `原始鍵 ...` candidate restores a converted
   character back to its raw keys. Literal punctuation cells use the same picker:
@@ -135,6 +138,7 @@ Emscripten build inputs and the native/API smoke tests.
 | Delete | delete the character right of the caret, or the focused candidate cell |
 | Shift+Delete (in candidates) | forget the highlighted personal learning record |
 | PageUp / PageDown | move between candidate pages |
+| ← / → (in candidates) | move to the neighbouring character's candidates, or turn candidate pages (configurable) |
 | number `1`–`9` | pick a candidate |
 | Backspace (in selection) | delete the focused character and leave selection |
 | Esc | clear pre-edit, or close selection/candidates first |
@@ -408,6 +412,8 @@ Settings module does not render tooltips yet).
 | Always use full-width punctuation | off | Full-width Chinese punctuation without a modifier. Off keeps ordinary punctuation literal and reserves the Chinese form for the shortcut below. |
 | Chinese punctuation shortcut | Ctrl+Shift | Modifier that temporarily produces the Chinese form of a punctuation key. Pick another one if an application already uses it. `Alt+[` / `Alt+]` stay reserved for corner quotes. |
 | Space opens candidates | off | Space opens the candidate window after a complete syllable. Off keeps Ari's Space-as-一聲 and literal-space behavior. Enter commits either way. |
+| Left/Right in the candidate window | Move to the next character | What ←/→ do while candidates are open. **Move to the next character** walks to the neighbouring character's candidates; **Turn candidate pages** pages through the focused character's list, cycling at both ends like libchewing's own window. Whichever you don't pick stays reachable: PageUp/PageDown always page (stopping at the ends), and Esc returns to the caret where ←/→ always move. |
+| Caret after picking a candidate | Stay after the corrected text | Where the caret goes once a candidate is chosen. **Stay after the corrected text** keeps editing at the correction; **Jump to the end** returns to appending at the tail. |
 | Reconversion shortcut | Control+Alt+R | Re-opens a short selected Chinese range for candidate correction. Clear it to reserve no shortcut. |
 | Learn accepted choices locally | on | Adapts the personal dictionary to the Chinese you accept. Sensitive fields never learn regardless of this setting. |
 | Show composition status | off | Shows `中 · 大千 · 半形標點`-style status in the auxiliary line while composing. |

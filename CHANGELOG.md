@@ -5,7 +5,14 @@
 - Keep the pre-edit caret where the correction happened: after picking a
   candidate the caret now sits on the character right after the text that was
   rewritten, instead of snapping to the end of the pre-edit. Typing continues
-  at that point; End or Esc still returns to appending at the end.
+  at that point; End or Esc still returns to appending at the end. The new
+  `CaretAfterPick` setting restores the old jump-to-the-end behavior.
+- Add `CandidateArrowKeys`, choosing what ←/→ do while the candidate window is
+  open: move to the neighbouring character's candidates (the default, unchanged)
+  or turn pages within the focused character's list, cycling at both ends the
+  way libchewing's own candidate window does. Whichever is not chosen stays
+  reachable — PageUp/PageDown always page (still stopping at the ends), and
+  Escape returns to the caret where ←/→ always move.
 - Shorten every configuration label and move the full explanation into a
   tooltip. The long descriptions were rendered as unwrapped single-line labels
   by KDE's System Settings module, stretching the Ari IME page past the right

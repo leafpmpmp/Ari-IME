@@ -45,6 +45,22 @@ enum class ChinesePunctuationShortcut {
 FCITX_CONFIG_ENUM_NAME(ChinesePunctuationShortcut, "ControlShift", "AltShift",
                        "Control", "Alt", "Disabled");
 
+// What ←/→ do while the candidate window is open. Correcting a long run and
+// scanning a long candidate list are both common, and only one of them can own
+// the plain arrow keys; the other stays reachable through Escape / PageUp.
+enum class CandidateArrowKeys {
+    MoveCursor, // step to the neighbouring character's candidates
+    ChangePage, // page through the focused character's candidate list
+};
+FCITX_CONFIG_ENUM_NAME(CandidateArrowKeys, "MoveCursor", "ChangePage");
+
+// Where the pre-edit caret lands once a candidate has been chosen.
+enum class CaretAfterPick {
+    NextCharacter, // just after the text the pick rewrote, to keep editing there
+    EndOfText,     // back at the end of the pre-edit, to resume appending
+};
+FCITX_CONFIG_ENUM_NAME(CaretAfterPick, "NextCharacter", "EndOfText");
+
 struct SyllableKeySequence {
     std::string keys;
     bool toneOne = false;
@@ -77,6 +93,24 @@ struct ChinesePunctuationShortcutI18NAnnotation {
         config.setValueByPath("EnumI18n/2", _("Ctrl"));
         config.setValueByPath("EnumI18n/3", _("Alt"));
         config.setValueByPath("EnumI18n/4", _("停用"));
+    }
+};
+
+struct CandidateArrowKeysI18NAnnotation {
+    bool skipDescription() const { return false; }
+    bool skipSave() const { return false; }
+    void dumpDescription(fcitx::RawConfig &config) const {
+        config.setValueByPath("EnumI18n/0", _("Move to the next character"));
+        config.setValueByPath("EnumI18n/1", _("Turn candidate pages"));
+    }
+};
+
+struct CaretAfterPickI18NAnnotation {
+    bool skipDescription() const { return false; }
+    bool skipSave() const { return false; }
+    void dumpDescription(fcitx::RawConfig &config) const {
+        config.setValueByPath("EnumI18n/0", _("Stay after the corrected text"));
+        config.setValueByPath("EnumI18n/1", _("Jump to the end"));
     }
 };
 

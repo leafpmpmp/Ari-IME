@@ -107,6 +107,20 @@ FCITX_CONFIGURATION(
         this, "SpaceCandidateMode", _("Space opens candidates"), false, {}, {},
         ari_ime::TooltipAnnotation<>(
             _("Use Space to open Chinese candidates after a complete syllable. Off keeps Ari's mixed-input Space-as-tone-one and literal-space behavior; Enter remains the commit key."))};
+    ari_ime::TooltipOption<ari_ime::CandidateArrowKeys,
+                           ari_ime::CandidateArrowKeysI18NAnnotation>
+        candidateArrowKeys{
+        this, "CandidateArrowKeys", _("Left/Right in the candidate window"),
+        ari_ime::CandidateArrowKeys::MoveCursor, {}, {},
+        ari_ime::TooltipAnnotation<ari_ime::CandidateArrowKeysI18NAnnotation>(
+            _("What Left and Right do while candidates are open: move to the neighbouring character's candidates, or turn pages within the focused character's list, cycling at both ends like libchewing's own window. Whichever you do not choose stays available — PageUp/PageDown always turn pages, and Escape returns to the caret where Left and Right always move."))};
+    ari_ime::TooltipOption<ari_ime::CaretAfterPick,
+                           ari_ime::CaretAfterPickI18NAnnotation>
+        caretAfterPick{
+        this, "CaretAfterPick", _("Caret after picking a candidate"),
+        ari_ime::CaretAfterPick::NextCharacter, {}, {},
+        ari_ime::TooltipAnnotation<ari_ime::CaretAfterPickI18NAnnotation>(
+            _("Where the caret goes once a candidate is chosen: on the character right after the text the pick rewrote, so a mid-sentence correction keeps editing there, or back at the end of the pre-edit to resume appending."))};
     ari_ime::KeyListTooltipOption reconversionKey{
         this, "ReconversionKey", _("Reconversion shortcut"),
         {fcitx::Key("Control+Alt+R")}, fcitx::KeyListConstrain(), {},

@@ -1372,6 +1372,107 @@ void test_revert_entry() {
              "typing after mid-string raw-key revert resumes before next cell");
 }
 
+// CandidateArrowKeys picks who owns ←/→ while candidates are open, and
+// CaretAfterPick picks where the caret lands once one is chosen. Both defaults
+// are asserted by the surrounding tests; these cover the non-default settings.
+void test_candidate_arrow_key_and_caret_options() {
+    const std::string bu = bu4_default();
+
+    // ChangePage: ←/→ turn pages instead of walking to the next character.
+    Sim page;
+    check(page.b.setCandidateArrowKeys(ari_ime::CandidateArrowKeys::ChangePage),
+          "arrow-key setter reports the change");
+    check(!page.b.setCandidateArrowKeys(ari_ime::CandidateArrowKeys::ChangePage),
+          "arrow-key setter is idempotent");
+    page.type("su3cl3");       // 你好
+    page.key(FcitxKey_Home);
+    page.key(FcitxKey_Down);   // candidates for 你
+    const auto firstPage = page.cand();
+    check(page.b.isPicking(), "ChangePage setup opens the candidate window");
+    check(page.b.candidatePage() == 1, "ChangePage setup starts at page 1");
+    const int focused = page.b.selectionChar();
+    check(focused >= 0, "ChangePage setup focuses a character");
+    // How many pages libchewing offers for 你 is version-dependent (see
+    // ISSUES.md), so drive the assertions off the reported count rather than
+    // assuming a number. The invariants below hold for one page as well.
+    const int lastPage = page.b.candidatePageCount();
+    check(lastPage >= 1, "ChangePage setup reports at least one page");
+
+    // The arrows page and cycle at both ends, like libchewing's own window.
+    page.key(FcitxKey_Right);
+    check(page.b.candidatePage() == (lastPage > 1 ? 2 : 1),
+          "Right turns to the next page");
+    check(page.b.selectionChar() == focused,
+          "Right keeps the focus on the same character");
+    if (lastPage > 1) {
+        check(page.cand() != firstPage, "Right shows different candidates");
+        page.key(FcitxKey_Left);
+        check(page.b.candidatePage() == 1, "Left turns back a page");
+        check(page.cand() == firstPage, "Left restores the first page");
+    }
+
+    page.key(FcitxKey_Home); // rebuild the list; leaves the page counter at 1
+    check(page.b.candidatePage() == 1, "ChangePage wrap test starts at page 1");
+    // Re-read the count: Home refeeds the run, so the rebuilt list is the one
+    // the wrap assertions below actually page through.
+    const int pages = page.b.candidatePageCount();
+    page.key(FcitxKey_Left);
+    check(page.b.candidatePage() == pages,
+          "Left on the first page wraps to the last");
+    page.key(FcitxKey_Right);
+    check(page.b.candidatePage() == 1,
+          "Right on the last page wraps to the first");
+    for (int i = 0; i < pages; ++i) {
+        page.key(FcitxKey_Right);
+    }
+    check(page.b.candidatePage() == 1,
+          "a full lap of Right returns to the first page");
+    check(page.b.selectionChar() == focused,
+          "paging never leaves the focused character");
+
+    // PageUp/PageDown keep their existing stop-at-the-end behavior.
+    page.key(FcitxKey_Page_Up);
+    check(page.b.candidatePage() == 1, "PageUp stops at the first page");
+    page.key(FcitxKey_Page_Down);
+    check(page.b.candidatePage() == (pages > 1 ? 2 : 1),
+          "PageDown still advances");
+    page.key(FcitxKey_Escape);
+    check(page.b.isEditing() && !page.b.isPicking(),
+          "Escape leaves the candidate window for caret mode");
+    page.key(FcitxKey_Right);
+    check(page.b.caretChar() == 1, "caret-mode Right still moves the caret");
+
+    // The default keeps ←/→ walking between characters.
+    Sim move;
+    move.type("su3cl3");
+    move.key(FcitxKey_Home);
+    move.key(FcitxKey_Down);
+    const int firstChar = move.b.selectionChar();
+    move.key(FcitxKey_Right);
+    check(move.b.selectionChar() == firstChar + 1,
+          "MoveCursor keeps Right walking to the next character");
+
+    // EndOfText restores the pre-2.6.3 behavior: a pick drops back to append.
+    Sim endOfText;
+    check(endOfText.b.setCaretAfterPick(ari_ime::CaretAfterPick::EndOfText),
+          "caret setter reports the change");
+    check(!endOfText.b.setCaretAfterPick(ari_ime::CaretAfterPick::EndOfText),
+          "caret setter is idempotent");
+    endOfText.type("su3cl3");
+    endOfText.key(FcitxKey_Home);
+    endOfText.key(FcitxKey_Down);
+    const int niIndex = find_visible_candidate(endOfText.cand(), "妳");
+    check(niIndex >= 0, "visible candidates include 妳 for the EndOfText test");
+    check(endOfText.b.selectCandidate(niIndex).handled,
+          "EndOfText test picks 妳");
+    check_eq(endOfText.preedit(), "妳好", "EndOfText pick still rewrites the cell");
+    check(!endOfText.b.isEditing() && endOfText.b.caretChar() == -1,
+          "EndOfText leaves correction mode with the caret at the end");
+    endOfText.type("1j4");
+    check_eq(endOfText.preedit(), "妳好" + bu,
+             "EndOfText resumes appending at the tail");
+}
+
 void test_candidate_paging() {
     const std::string bu = bu4_default();
 
@@ -2609,6 +2710,7 @@ int main() {
     test_up_navigates_not_revert();
     test_revert_entry();
     test_candidate_paging();
+    test_candidate_arrow_key_and_caret_options();
     test_candidate_tab_navigation();
     test_reinterpret();
     test_insert_while_selecting();

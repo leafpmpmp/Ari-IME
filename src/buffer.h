@@ -134,6 +134,23 @@ public:
         spaceCandidateMode_ = on;
         return true;
     }
+    // ←/→ inside the candidate window: step to the neighbouring character, or
+    // page through the focused character's candidates.
+    bool setCandidateArrowKeys(ari_ime::CandidateArrowKeys keys) {
+        if (candidateArrowKeys_ == keys) {
+            return false;
+        }
+        candidateArrowKeys_ = keys;
+        return true;
+    }
+    // Where the caret lands after a candidate is chosen.
+    bool setCaretAfterPick(ari_ime::CaretAfterPick where) {
+        if (caretAfterPick_ == where) {
+            return false;
+        }
+        caretAfterPick_ = where;
+        return true;
+    }
     bool setKeyboardLayout(ari_ime::KeyboardLayout layout);
     // The frontend disables learning for password and other sensitive fields.
     void setLearningAllowed(bool allowed) { learningAllowed_ = allowed; }
@@ -273,9 +290,14 @@ private:
     KeyResult pickCandidate(int pageIndex); // pick a candidate on the current page
     // Close the candidate window after a completed pick and stay in caret mode
     // with the caret parked at cell index `caret` — the cell just after the text
-    // the pick rewrote. Correction is a mid-string operation, so the caret must
-    // stay where the user was working instead of snapping back to the end.
+    // the pick rewrote. Correction is a mid-string operation, so by default the
+    // caret stays where the user was working instead of snapping back to the
+    // end; CaretAfterPick::EndOfText restores the append-at-end behavior.
     void finishPickAt(int caret);
+    // Move `delta` candidate pages. `wrap` cycles past either end (what ←/→ do
+    // under CandidateArrowKeys::ChangePage, matching libchewing's own window
+    // and ↓/↑ here); PageUp/PageDown pass false and stop at the ends.
+    KeyResult changeCandidatePage(int delta, bool wrap);
     KeyResult forgetHighlightedCandidate();
     void rememberSelectionUndo();
     void clearSelectionUndo();
@@ -307,6 +329,10 @@ private:
     ari_ime::ChinesePunctuationShortcut punctuationShortcut_ =
         ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
+    ari_ime::CandidateArrowKeys candidateArrowKeys_ =
+        ari_ime::CandidateArrowKeys::MoveCursor;
+    ari_ime::CaretAfterPick caretAfterPick_ =
+        ari_ime::CaretAfterPick::NextCharacter;
     bool learningAllowed_ = true;
     ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;

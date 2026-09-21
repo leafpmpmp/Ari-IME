@@ -2247,7 +2247,10 @@ void Buffer::finishPickAt(int caret) {
     selCands_.clear();
     selPage_ = 0;
     highlight_ = 0;
-    if (cells_.empty()) {
+    if (cells_.empty() ||
+        caretAfterPick_ == ari_ime::CaretAfterPick::EndOfText) {
+        // Leave editing entirely: the caret reports "at the very end" and the
+        // next printable key resumes the normal append path.
         exitSelection();
         return;
     }
@@ -2260,6 +2263,28 @@ void Buffer::finishPickAt(int caret) {
     // every path that reopens candidates (openCandidatesAt / moveSelCursor)
     // clears runLoaded_ first, so a later pick always re-feeds from the cells.
     zhuyin_.closeCandidates();
+}
+
+KeyResult Buffer::changeCandidatePage(int delta, bool wrap) {
+    const int total = static_cast<int>(selCands_.size());
+    const int totalPages =
+        (total + ari_ime::kCandPerPage - 1) / ari_ime::kCandPerPage;
+    if (totalPages <= 0) {
+        selPage_ = 0;
+        highlight_ = 0;
+        return {true, false, {}, true};
+    }
+    int page = selPage_ + delta;
+    if (wrap) {
+        // Cycle like libchewing's own candidate window (and like ↓/↑ here):
+        // past the last page is the first, before the first is the last.
+        page = ((page % totalPages) + totalPages) % totalPages;
+    } else {
+        page = std::clamp(page, 0, totalPages - 1);
+    }
+    selPage_ = page;
+    highlight_ = 0;
+    return {true, false, {}, true};
 }
 
 void Buffer::rememberSelectionUndo() {
@@ -2699,7 +2724,15 @@ KeyResult Buffer::handlePicking(const fcitx::Key &key) {
         return moveCaretByPhrase(sym == FcitxKey_Left ? -1 : 1);
     }
 
-    // ←/→ step to the adjacent character's candidates (fix several in a row).
+    // ←/→ step to the adjacent character's candidates (fix several in a row),
+    // or page through this character's list when the user configured that. The
+    // mode they did not pick stays reachable: PageUp/PageDown always page, and
+    // Escape drops to caret mode where ←/→ always move.
+    if ((sym == FcitxKey_Left || sym == FcitxKey_Right) &&
+        candidateArrowKeys_ == ari_ime::CandidateArrowKeys::ChangePage) {
+        return changeCandidatePage(sym == FcitxKey_Right ? 1 : -1,
+                                   /*wrap=*/true);
+    }
     if (sym == FcitxKey_Left) {
         return moveSelCursor(-1);
     }
@@ -2801,18 +2834,10 @@ KeyResult Buffer::handlePicking(const fcitx::Key &key) {
         return {true, false, {}, true};
     }
     if (sym == FcitxKey_Page_Down) {
-        if (selPage_ + 1 < totalPages) {
-            ++selPage_;
-        }
-        highlight_ = 0;
-        return {true, false, {}, true};
+        return changeCandidatePage(1, /*wrap=*/false);
     }
     if (sym == FcitxKey_Page_Up) {
-        if (selPage_ > 0) {
-            --selPage_;
-        }
-        highlight_ = 0;
-        return {true, false, {}, true};
+        return changeCandidatePage(-1, /*wrap=*/false);
     }
 
     // Pick directly by number (main row or numeric keypad).
