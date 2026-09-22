@@ -1557,6 +1557,82 @@ void test_candidate_arrow_key_and_caret_options() {
              "EndOfText resumes appending at the tail");
 }
 
+// ↑ on a literal key as Ari's original ASUS-style gesture: one key becomes the
+// Bopomofo symbol it stands for, as a finished character.
+void test_up_shows_bopomofo_symbol() {
+    // Default: ↑ keeps folding literal keys into a Chinese character.
+    Sim merge;
+    merge.type("1");
+    merge.key(FcitxKey_Up);
+    check_eq(merge.preedit(), "1",
+             "by default a lone key that forms no syllable is left alone");
+
+    Sim s;
+    check(s.b.setLiteralKeyReinterpret(
+              ari_ime::LiteralKeyReinterpret::BopomofoSymbol),
+          "literal-key setter reports the change");
+    check(!s.b.setLiteralKeyReinterpret(
+              ari_ime::LiteralKeyReinterpret::BopomofoSymbol),
+          "literal-key setter is idempotent");
+
+    s.type("1");
+    check_eq(s.preedit(), "1", "a lone 注音 key stays literal while typing");
+    s.key(FcitxKey_Up);
+    check_eq(s.preedit(), "ㄅ", "Up turns the literal key into its Bopomofo symbol");
+    check(s.b.isEditing() && !s.b.isPicking(),
+          "the symbol does not open a candidate window");
+    check(s.b.caretChar() == 1, "the caret parks just after the symbol");
+
+    // The symbol is a finished character: the next key follows it rather than
+    // continuing the syllable.
+    s.type("j");
+    check_eq(s.preedit(), "ㄅj", "typing after the symbol appends, not composes");
+    s.key(FcitxKey_Return);
+    check_eq(s.committed, "ㄅj", "the symbol commits as ordinary text");
+
+    // Pressing Up again on the symbol is a no-op: it is no longer a raw key.
+    Sim twice;
+    twice.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    twice.type("1");
+    twice.key(FcitxKey_Up);
+    twice.key(FcitxKey_Up);
+    check_eq(twice.preedit(), "ㄅ", "a second Up leaves the symbol unchanged");
+
+    // Tone keys carry their mark; only the focused key converts.
+    Sim tone;
+    tone.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    tone.type("3");
+    tone.key(FcitxKey_Up);
+    check_eq(tone.preedit(), "ˇ", "Up on a tone key shows its tone mark");
+
+    Sim one;
+    one.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    one.type("1j4");
+    check_eq(one.preedit(), bu4_default(),
+             "keys that complete a syllable still convert while typing");
+
+    Sim mid;
+    mid.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    mid.type("cat");
+    mid.key(FcitxKey_Home);
+    mid.key(FcitxKey_Up);
+    check_eq(mid.preedit(), "ㄏat",
+             "only the character under the caret converts, not the run");
+    check(mid.b.caretChar() == 1, "the caret follows the converted character");
+
+    // A key with no 注音 slot on this layout is left untouched.
+    Sim inert;
+    inert.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    inert.b.pasteAtCaret("@");
+    inert.key(FcitxKey_Up);
+    check_eq(inert.preedit(), "@", "Up leaves a non-注音 key alone");
+}
+
 void test_candidate_paging() {
     const std::string bu = bu4_default();
 
@@ -2807,6 +2883,7 @@ int main() {
     test_up_navigates_not_revert();
     test_revert_entry();
     test_candidate_paging();
+    test_up_shows_bopomofo_symbol();
     test_candidate_arrow_key_and_caret_options();
     test_candidate_tab_navigation();
     test_reinterpret();

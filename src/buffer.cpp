@@ -268,6 +268,19 @@ Zhuyin *probeForCurrentLayout(Zhuyin *&probe,
     return probe;
 }
 
+// The Bopomofo symbol(s) libchewing maps `keys` to on the current layout, or
+// empty when they are not 注音 keys. Tone keys map to their mark (3 -> ˇ), so
+// callers that want a syllable body must strip tones themselves.
+std::string bopomofoForKeys(const std::string &keys) {
+    // Intentionally leaked at process exit, same rationale as syllableConverts
+    // below: rebuilt only on explicit layout changes.
+    static Zhuyin *probe = nullptr;
+    static ari_ime::KeyboardLayout probeLayout = ari_ime::KeyboardLayout::Default;
+    Zhuyin *ctx = probeForCurrentLayout(probe, probeLayout);
+    ctx->feedSequence(ari_ime::canonicalKeys(keys));
+    return ctx->bopomofoString();
+}
+
 // Whether a complete (toned) canonical syllable converts to a Chinese character
 // with nothing left dangling.
 bool syllableConverts(const std::string &canonicalKeys) {
@@ -615,13 +628,7 @@ std::string Buffer::pendingSyllableHint() const {
     if (body.empty()) {
         return {};
     }
-    // Intentionally leaked at process exit, same rationale as
-    // syllableConverts above: rebuilt only on explicit layout changes.
-    static Zhuyin *probe = nullptr;
-    static ari_ime::KeyboardLayout probeLayout = ari_ime::KeyboardLayout::Default;
-    Zhuyin *ctx = probeForCurrentLayout(probe, probeLayout);
-    ctx->feedSequence(ari_ime::canonicalKeys(body));
-    return ctx->bopomofoString();
+    return bopomofoForKeys(body);
 }
 
 void Buffer::reset() {
@@ -2459,6 +2466,33 @@ KeyResult Buffer::revertCellToEnglish() {
     return {true, false, {}, true};
 }
 
+KeyResult Buffer::showBopomofoForCell(int cell) {
+    const std::string key = cells_[cell].text;
+    // One key only, and only one that means something on this layout. Anything
+    // else (a letter with no 注音 slot, a multi-codepoint literal) is left alone
+    // so ↑ stays a no-op rather than mangling text.
+    if (key.size() != 1 ||
+        ari_ime::zhuyinSlot(key[0]) == ari_ime::kNoZhuyinSlot) {
+        return {true, false, {}, true};
+    }
+    const std::string symbol = bopomofoForKeys(key);
+    if (symbol.empty()) {
+        return {true, false, {}, true};
+    }
+    clearSelectionUndo(); // a structural edit, like reinterpretFromCell
+    cells_[cell] = {false, symbol, {}};
+    // Stay in caret mode with the caret just after the symbol, so the next
+    // keystroke continues there like every other in-place edit.
+    candOpen_ = false;
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
+    runLoaded_ = false; // the cell's content changed under any loaded run
+    caretPos_ = cell + 1;
+    selCursor_ = cell;
+    return {true, false, {}, true};
+}
+
 KeyResult Buffer::reinterpretFromCell() {
     clearSelectionUndo();
     // Accumulate raw keys from the cursor cell forward (English cells contribute
@@ -2689,6 +2723,10 @@ KeyResult Buffer::openCandidatesAt(int cell, bool reinterpret) {
     // English cell: only ↑ acts — fold it (+ the next few) back into a 注音
     // character and open its candidates. ↓ on English has nothing to pick.
     if (reinterpret) {
+        if (literalKeyReinterpret_ ==
+            ari_ime::LiteralKeyReinterpret::BopomofoSymbol) {
+            return showBopomofoForCell(cell);
+        }
         // reinterpretFromCell() early-outs without touching selCands_ on
         // failure paths; a stale list from a previous picking session would
         // reopen a window wired to the wrong cell and let the next pick land

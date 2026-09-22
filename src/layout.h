@@ -54,6 +54,15 @@ enum class CandidateArrowKeys {
 };
 FCITX_CONFIG_ENUM_NAME(CandidateArrowKeys, "MoveCursor", "ChangePage");
 
+// What ↑ does to a literal (English or punctuation) character in the pre-edit.
+// The Bopomofo option is Ari's original ASUS-style gesture: one key becomes the
+// symbol it stands for, as ordinary text.
+enum class LiteralKeyReinterpret {
+    Syllable,       // fold this cell and the next few into one Chinese character
+    BopomofoSymbol, // replace just this key with its Bopomofo symbol (ㄅ for 1)
+};
+FCITX_CONFIG_ENUM_NAME(LiteralKeyReinterpret, "Syllable", "BopomofoSymbol");
+
 // Where the pre-edit caret lands once a candidate has been chosen.
 enum class CaretAfterPick {
     NextCharacter, // just after the text the pick rewrote, to keep editing there
@@ -102,6 +111,15 @@ struct CandidateArrowKeysI18NAnnotation {
     void dumpDescription(fcitx::RawConfig &config) const {
         config.setValueByPath("EnumI18n/0", _("Move to the next character"));
         config.setValueByPath("EnumI18n/1", _("Turn candidate pages"));
+    }
+};
+
+struct LiteralKeyReinterpretI18NAnnotation {
+    bool skipDescription() const { return false; }
+    bool skipSave() const { return false; }
+    void dumpDescription(fcitx::RawConfig &config) const {
+        config.setValueByPath("EnumI18n/0", _("Merge into a Chinese character"));
+        config.setValueByPath("EnumI18n/1", _("Show its Bopomofo symbol"));
     }
 };
 

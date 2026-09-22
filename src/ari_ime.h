@@ -121,6 +121,13 @@ FCITX_CONFIGURATION(
         ari_ime::CaretAfterPick::NextCharacter, {}, {},
         ari_ime::TooltipAnnotation<ari_ime::CaretAfterPickI18NAnnotation>(
             _("Where the caret goes once a candidate is chosen: on the character right after the text the pick rewrote, so a mid-sentence correction keeps editing there, or back at the end of the pre-edit to resume appending."))};
+    ari_ime::TooltipOption<ari_ime::LiteralKeyReinterpret,
+                           ari_ime::LiteralKeyReinterpretI18NAnnotation>
+        literalKeyReinterpret{
+        this, "LiteralKeyReinterpret", _("Up arrow on a literal character"),
+        ari_ime::LiteralKeyReinterpret::Syllable, {}, {},
+        ari_ime::TooltipAnnotation<ari_ime::LiteralKeyReinterpretI18NAnnotation>(
+            _("What Up does to a literal English or punctuation character in the pre-edit. Merging folds it together with the next few characters into one Chinese character when they form a complete syllable, recovering cases like catsu3 into cat plus 你. Showing the Bopomofo symbol replaces just that one key with the symbol it stands for (1 becomes ㄅ) as ordinary text, the way ASUS's mixed input does; the symbol is a finished character, so the next key you type follows it."))};
     ari_ime::KeyListTooltipOption reconversionKey{
         this, "ReconversionKey", _("Reconversion shortcut"),
         {fcitx::Key("Control+Alt+R")}, fcitx::KeyListConstrain(), {},

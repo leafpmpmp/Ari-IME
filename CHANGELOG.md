@@ -7,6 +7,13 @@
   rewritten, instead of snapping to the end of the pre-edit. Typing continues
   at that point; End or Esc still returns to appending at the end. The new
   `CaretAfterPick` setting restores the old jump-to-the-end behavior.
+- Add `LiteralKeyReinterpret`, restoring Ari's original ASUS-style gesture as an
+  option: with it set to `BopomofoSymbol`, ↑ on a literal 注音 key replaces just
+  that key with the symbol it stands for (`1` → `ㄅ`) as ordinary text, tone keys
+  included (`3` → `ˇ`). The symbol is a finished character, so the next keystroke
+  follows it rather than continuing the syllable. The default `Syllable` keeps
+  today's behavior of folding the key together with the next few into one Chinese
+  character.
 - Add `CandidateArrowKeys`, choosing what ←/→ do while the candidate window is
   open: move to the neighbouring character's candidates (the default, unchanged)
   or turn pages within the focused character's list, cycling at both ends the

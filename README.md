@@ -131,7 +131,7 @@ Emscripten build inputs and the native/API smoke tests.
 | layout tone keys, space (一聲) | complete the pending syllable |
 | ↓ / ← / → | open candidate re-selection over the pre-edit |
 | Ctrl+Alt+R | reopen a selected short Chinese range for candidate correction (configurable) |
-| ↑ | open/reinterpret the current pre-edit cell |
+| ↑ | open/reinterpret the current pre-edit cell, or show a literal key's Bopomofo symbol (configurable) |
 | Tab / Shift+Tab (in candidates) | move candidate highlight forward / backward |
 | Home / End | jump to the beginning / end of the pre-edit |
 | Ctrl+Left / Ctrl+Right | move by libchewing phrase boundaries or English words |
@@ -413,6 +413,7 @@ Settings module does not render tooltips yet).
 | Chinese punctuation shortcut | Ctrl+Shift | Modifier that temporarily produces the Chinese form of a punctuation key. Pick another one if an application already uses it. `Alt+[` / `Alt+]` stay reserved for corner quotes. |
 | Space opens candidates | off | Space opens the candidate window after a complete syllable. Off keeps Ari's Space-as-一聲 and literal-space behavior. Enter commits either way. |
 | Left/Right in the candidate window | Move to the next character | What ←/→ do while candidates are open. **Move to the next character** walks to the neighbouring character's candidates; **Turn candidate pages** pages through the focused character's list, cycling at both ends like libchewing's own window. Whichever you don't pick stays reachable: PageUp/PageDown always page (stopping at the ends), and Esc returns to the caret where ←/→ always move. |
+| Up arrow on a literal character | Merge into a Chinese character | What ↑ does to a literal English or punctuation character. **Merge into a Chinese character** folds it together with the next few when they form a complete syllable (`catsu3` → `cat` + 你). **Show its Bopomofo symbol** replaces just that one key with the symbol it stands for (`1` → `ㄅ`) as ordinary text, the way ASUS's mixed input does — the symbol is a finished character, so the next key you type follows it. |
 | Caret after picking a candidate | Stay after the corrected text | Where the caret goes once a candidate is chosen. **Stay after the corrected text** keeps editing at the correction; **Jump to the end** returns to appending at the tail. |
 | Reconversion shortcut | Control+Alt+R | Re-opens a short selected Chinese range for candidate correction. Clear it to reserve no shortcut. |
 | Learn accepted choices locally | on | Adapts the personal dictionary to the Chinese you accept. Sensitive fields never learn regardless of this setting. |
