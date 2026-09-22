@@ -479,6 +479,31 @@ into a throwaway prefix, and runs CTest. `--deps` installs the build
 dependencies for the detected distribution (needs sudo) and can be dropped on
 later runs.
 
+To install what you just built, the way the distribution expects:
+
+```sh
+scripts/build-from-source.sh --install
+```
+
+That builds the native package, installs it through `apt` or `pacman` (so it
+stays uninstallable and does not fight the package manager), then restarts
+Fcitx5 and reports which module the running daemon actually loaded. The restart
+matters: Fcitx5 `dlopen()`s the addon once at startup, and `fcitx5-remote -r`
+rereads configuration without swapping the library — so after an upgrade the
+daemon keeps running the previous build out of a file that has already been
+replaced. The script tells you which state you are in:
+
+```
+    Fcitx5 pid 146938
+    loaded: /usr/lib/fcitx5/ari-ime.so
+```
+
+A path ending in `(deleted)` means the daemon is still on the old build and
+needs `fcitx5 -r -d`. Pass `--no-restart` to leave a running Fcitx5 alone.
+
+If Ari IME is not in your input method group yet, add it once with
+`ari-ime-enable --make-default`.
+
 Add `--package` to build the distribution's own package instead — a `.deb` via
 `dpkg-buildpackage` on Debian and Ubuntu (whose `debian/rules` configures with
 `-DBUILD_TESTING=ON`, so debhelper runs CTest as part of the build), or a

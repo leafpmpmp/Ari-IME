@@ -24,6 +24,10 @@ Options:
   --deps          install the distribution's build dependencies first (sudo)
   --package       also build the native package (.deb via dpkg-buildpackage,
                   or .pkg.tar.zst via makepkg) instead of only a plain build
+  --install       build the native package, install it through the system
+                  package manager (sudo), then restart Fcitx5 and report what
+                  the running daemon actually loaded. Implies --package.
+  --no-restart    with --install, leave the running Fcitx5 alone
   --no-test       build only; do not run ctest
   --build-dir DIR use DIR instead of build-from-source
   --build-type T  CMake build type (default: Release)
@@ -31,6 +35,13 @@ Options:
 
 The package build is the stricter check on Debian and Ubuntu: debian/rules
 configures with -DBUILD_TESTING=ON and debhelper runs ctest as part of it.
+
+--install goes through the distribution's package manager rather than
+installing files directly, so the result stays uninstallable and does not
+fight dpkg or pacman. It then restarts Fcitx5, because Fcitx5 dlopen()s the
+addon at startup: `fcitx5-remote -r` rereads configuration but never swaps a
+shared library, so without a restart the daemon keeps running the previous
+build from a now-deleted file.
 
 Exit status is non-zero if any step fails, so this is safe to use in a loop
 across machines.
@@ -52,6 +63,8 @@ cd "$repo_root"
 
 install_deps=0
 build_package=0
+install_package=0
+restart_fcitx=1
 run_tests=1
 build_dir="build-from-source"
 build_type="Release"
@@ -60,6 +73,11 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
     --deps) install_deps=1 ;;
     --package) build_package=1 ;;
+    --install)
+        build_package=1
+        install_package=1
+        ;;
+    --no-restart) restart_fcitx=0 ;;
     --no-test) run_tests=0 ;;
     --build-dir)
         [[ $# -ge 2 ]] || die '--build-dir requires a directory'
@@ -226,6 +244,10 @@ plain_build() {
     fi
 }
 
+# Set by package_build() to the package --install should hand to the system
+# package manager (the main one, never the -debug companion).
+built_package=""
+
 package_build() {
     case "$family" in
     debian)
@@ -236,8 +258,20 @@ package_build() {
         run dpkg-buildpackage -us -uc -b
         # dpkg-buildpackage writes its artifacts into the parent directory.
         printf '\n==> packages written next to the source tree:\n'
-        find .. -maxdepth 1 -name 'fcitx5-ari-ime*.deb' -printf '  %p\n' |
-            sort || true
+        # dpkg-buildpackage writes into the parent directory, which accumulates
+        # artifacts from every previous build -- including older versions. Sort
+        # by modification time and take the newest, so --install can never hand
+        # a stale .deb to apt.
+        local deb stamp
+        while IFS= read -r stamp; do
+            deb="${stamp#* }"
+            printf '  %s\n' "$deb"
+            # Skip the debug companion; it is not what gets installed.
+            [[ "$deb" == *-dbgsym* || "$deb" == *-debug* ]] && continue
+            [[ -n "$built_package" ]] && continue
+            built_package="$(readlink -f "$deb")"
+        done < <(find .. -maxdepth 1 -name 'fcitx5-ari-ime*.deb' \
+            -printf '%T@ %p\n' | sort -rn)
         ;;
     arch)
         command -v makepkg >/dev/null 2>&1 ||
@@ -266,13 +300,124 @@ package_build() {
         local built
         while IFS= read -r built; do
             cp -f "$built" "$repo_root/"
-            printf '  %s\n' "$repo_root/$(basename "$built")"
+            local landed="$repo_root/$(basename "$built")"
+            printf '  %s\n' "$landed"
+            [[ "$landed" == *-debug-* ]] && continue
+            built_package="$landed"
         done < <(find "$work" -maxdepth 1 -name '*.pkg.tar.*' -print)
         ;;
     *)
         die "--package is not supported on ${distro_name}"
         ;;
     esac
+}
+
+install_built_package() {
+    [[ -n "$built_package" && -f "$built_package" ]] ||
+        die 'the package build produced nothing to install'
+    case "$family" in
+    debian)
+        # apt-get, not dpkg -i, so runtime dependencies resolve.
+        run "${sudo_cmd[@]}" apt-get install -y "$built_package"
+        ;;
+    arch)
+        run "${sudo_cmd[@]}" pacman -U --noconfirm "$built_package"
+        ;;
+    *)
+        die "--install is not supported on ${distro_name}"
+        ;;
+    esac
+}
+
+# Fcitx5 dlopen()s the addon once at startup. Reloading configuration does not
+# swap the library, so an upgraded addon only takes effect after the daemon is
+# restarted -- until then it keeps running the previous build out of a file that
+# has already been replaced on disk.
+restart_and_verify() {
+    if ! command -v fcitx5 >/dev/null 2>&1; then
+        printf '\n==> Fcitx5 is not installed; nothing to restart\n'
+        return
+    fi
+    if [[ "$restart_fcitx" -eq 0 ]]; then
+        printf '\n==> Skipping the Fcitx5 restart (--no-restart).\n'
+        printf '    The addon stays on the previous build until you run: fcitx5 -r -d\n'
+        return
+    fi
+    if ! pgrep -x fcitx5 >/dev/null 2>&1; then
+        printf '\n==> Fcitx5 is not running; start it to pick the addon up\n'
+        return
+    fi
+
+    local old_pid
+    old_pid="$(pgrep -xo fcitx5 || true)"
+
+    printf '\n==> Restarting Fcitx5 so it loads the new addon\n'
+    # setsid + full redirection: fcitx5 -d daemonises but keeps the inherited
+    # stdout open, which would otherwise hold this script (and any caller
+    # capturing its output) open indefinitely.
+    setsid fcitx5 -r -d </dev/null >/dev/null 2>&1 || true
+
+    # Wait for a DIFFERENT pid, not merely for one to exist: the outgoing daemon
+    # stays alive for a moment after its replacement starts, and `pgrep -xo`
+    # reports the older of the two, so polling for "any fcitx5" hands back the
+    # process we just asked to go away.
+    local pid="" waited=0
+    while [[ "$waited" -lt 100 ]]; do
+        pid="$(pgrep -xo fcitx5 || true)"
+        [[ -n "$pid" && "$pid" != "$old_pid" ]] && break
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+    if [[ -z "$pid" || ! -r "/proc/$pid/maps" ]]; then
+        printf '    Could not inspect the restarted Fcitx5\n'
+        return
+    fi
+
+    # The addon is OnDemand: Fcitx5 only maps it once the input method is used.
+    # Asking for its configuration over D-Bus forces it in, with retries because
+    # the fresh daemon has to claim the bus name first.
+    local mapped="" probe=0
+    while [[ "$probe" -lt 30 ]]; do
+        if command -v gdbus >/dev/null 2>&1; then
+            gdbus call --session --dest org.fcitx.Fcitx5 --object-path /controller \
+                --method org.fcitx.Fcitx.Controller1.GetConfig \
+                "fcitx://config/inputmethod/ari-ime" >/dev/null 2>&1 || true
+        fi
+        mapped="$(grep -F 'ari-ime.so' "/proc/$pid/maps" 2>/dev/null |
+            awk '{print $NF}' | sort -u | head -1)"
+        [[ -n "$mapped" ]] && break
+        sleep 0.2
+        probe=$((probe + 1))
+    done
+    printf '    Fcitx5 pid %s\n' "$pid"
+    if [[ -z "$mapped" ]]; then
+        printf '    addon not loaded yet (it loads when Ari IME is selected)\n'
+    elif [[ "$mapped" == *"(deleted)"* ]]; then
+        printf '    STALE: still running a replaced file (%s)\n' "$mapped"
+        printf '    Restart Fcitx5 again: fcitx5 -r -d\n'
+    else
+        printf '    loaded: %s\n' "$mapped"
+    fi
+}
+
+report_installed() {
+    printf '\n===== installed =====\n'
+    case "$family" in
+    debian) printf '%-22s %s\n' "package" \
+        "$(dpkg-query -W -f='${Version}' fcitx5-ari-ime 2>/dev/null || echo 'not installed')" ;;
+    arch) printf '%-22s %s\n' "package" \
+        "$(pacman -Q fcitx5-ari-ime 2>/dev/null | awk '{print $2}' || echo 'not installed')" ;;
+    esac
+    # The package version does not move for a local rebuild, so also report the
+    # source it was built from. This is what actually answers "is the thing I am
+    # running the thing I just built?".
+    if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1; then
+        local sha dirty=""
+        sha="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+        git -C "$repo_root" diff --quiet 2>/dev/null || dirty=" (+uncommitted changes)"
+        printf '%-22s %s\n' "built from" "$sha$dirty"
+    fi
+    printf '=====================\n'
 }
 
 # --- Main --------------------------------------------------------------------
@@ -292,6 +437,12 @@ if [[ "$build_package" -eq 1 ]]; then
     package_build
 else
     plain_build
+fi
+
+if [[ "$install_package" -eq 1 ]]; then
+    install_built_package
+    report_installed
+    restart_and_verify
 fi
 
 printf '\n==> OK on %s\n' "$distro_name"

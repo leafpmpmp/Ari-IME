@@ -1599,6 +1599,16 @@ void test_up_shows_bopomofo_symbol() {
     twice.key(FcitxKey_Up);
     check_eq(twice.preedit(), "ㄅ", "a second Up leaves the symbol unchanged");
 
+    // ↓ on the symbol must not mistake it for punctuation and open a list.
+    Sim down;
+    down.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    down.type("1");
+    down.key(FcitxKey_Up);
+    down.key(FcitxKey_Down);
+    check(!down.b.isPicking(), "Down on a Bopomofo symbol opens no candidates");
+    check_eq(down.preedit(), "ㄅ", "Down leaves the symbol unchanged");
+
     // Tone keys carry their mark; only the focused key converts.
     Sim tone;
     tone.b.setLiteralKeyReinterpret(
