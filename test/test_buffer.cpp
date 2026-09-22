@@ -161,6 +161,31 @@ bool contains_han_character(const std::string &text) {
     return false;
 }
 
+// What libchewing itself converts an already-toned key sequence to on `layout`,
+// with no Buffer in the loop. Both the keyboard tables and the phrase ranking
+// belong to libchewing and differ between releases (see ISSUES.md), so a test
+// that means "Ari routes these keys the way libchewing does" has to derive its
+// expectation rather than pin a character that happened to be right on one
+// distribution. Returns empty when the sequence does not convert, so callers
+// can skip instead of asserting against nothing.
+std::string direct_conversion(ari_ime::KeyboardLayout layout,
+                              const std::string &keys) {
+    Zhuyin direct;
+    if (!direct.ok()) {
+        return {};
+    }
+    direct.setKeyboardLayout(layout);
+    std::string folded = keys;
+    for (char &key : folded) {
+        if (key >= 'A' && key <= 'Z') {
+            key = static_cast<char>(key + ('a' - 'A'));
+        }
+    }
+    direct.feedSequence(folded);
+    const std::string out = direct.preedit();
+    return contains_han_character(out) ? out : std::string{};
+}
+
 std::string direct_tone1_conversion(ari_ime::KeyboardLayout layout,
                                     const std::string &keys) {
     Zhuyin direct;
@@ -562,17 +587,36 @@ void test_additional_layout_typing() {
         }
         ari_ime::setCurrentKeyboardLayout(c.layout);
 
+        // Expect whatever libchewing makes of the same keys on this layout,
+        // not a hardcoded character: its keyboard tables differ between
+        // releases, so 精業 `vla` is 好 on one distribution and 吼 on another.
+        // What Ari owns — and what this checks — is that routing the keys
+        // through the Buffer lands on the same result as feeding libchewing
+        // directly.
         Sim single;
         single.b.setKeyboardLayout(c.layout);
         single.type(c.ni);
-        std::string singleLabel = std::string(c.name) + " types 你";
-        check_eq(single.preedit(), "你", singleLabel.c_str());
+        const std::string wantNi = direct_conversion(c.layout, c.ni);
+        if (!wantNi.empty()) {
+            std::string label = std::string(c.name) + " types one character";
+            check_eq(single.preedit(), wantNi, label.c_str());
+            std::string countLabel =
+                std::string(c.name) + " single stays one character";
+            check(utf8_count(single.preedit()) == 1, countLabel.c_str());
+        }
 
         Sim phrase;
         phrase.b.setKeyboardLayout(c.layout);
         phrase.type(std::string(c.ni) + c.hao);
-        std::string phraseLabel = std::string(c.name) + " types 你好";
-        check_eq(phrase.preedit(), "你好", phraseLabel.c_str());
+        const std::string wantPhrase =
+            direct_conversion(c.layout, std::string(c.ni) + c.hao);
+        if (!wantPhrase.empty()) {
+            std::string label = std::string(c.name) + " types two characters";
+            check_eq(phrase.preedit(), wantPhrase, label.c_str());
+            std::string countLabel =
+                std::string(c.name) + " phrase stays two characters";
+            check(utf8_count(phrase.preedit()) == 2, countLabel.c_str());
+        }
     }
 
     ari_ime::setCurrentKeyboardLayout(ari_ime::KeyboardLayout::Default);
@@ -2554,12 +2598,25 @@ void test_ambiguous_symbol_boundary_literals() {
     check_eq(symbolHeavy.preedit(), "-?",
              "invalid symbol-heavy sequence still falls back to literal");
 
+    // The point here is that `-`, a punctuation-looking key, is consumed as part
+    // of the syllable instead of leaking out as a literal. Which characters the
+    // two syllables become is libchewing's call and differs between releases,
+    // so derive that half of the expectation.
     Sim chinese;
     chinese.b.setKeyboardLayout(ari_ime::KeyboardLayout::GinYieh);
-    chinese.type("d-a"); // 你
-    chinese.type("vla"); // 好
-    check_eq(chinese.preedit(), "你好",
-             "normal zhuyin typing still works with punctuation-looking keys inside a syllable");
+    chinese.type("d-a");
+    chinese.type("vla");
+    const std::string typed = chinese.preedit();
+    check(typed.find('-') == std::string::npos,
+          "a punctuation-looking zhuyin key does not leak into the preedit");
+    check(utf8_count(typed) == 2,
+          "two symbol-containing syllables convert to two characters");
+    const std::string wantTyped =
+        direct_conversion(ari_ime::KeyboardLayout::GinYieh, "d-avla");
+    if (!wantTyped.empty()) {
+        check_eq(typed, wantTyped,
+                 "normal zhuyin typing still works with punctuation-looking keys inside a syllable");
+    }
 
     ari_ime::setCurrentKeyboardLayout(ari_ime::KeyboardLayout::Default);
 
