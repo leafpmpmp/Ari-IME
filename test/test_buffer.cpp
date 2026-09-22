@@ -186,6 +186,32 @@ std::string direct_conversion(ari_ime::KeyboardLayout layout,
     return contains_han_character(out) ? out : std::string{};
 }
 
+// Feed `keys` straight to libchewing as ONE run, with ' ' meaning the tone-1
+// Space key, and no Buffer in between. Lets a test assert "Ari handed the whole
+// run to libchewing" without also asserting which homophone libchewing picks —
+// that ranking is libchewing's and moves between releases (see ISSUES.md).
+std::string direct_run_conversion(ari_ime::KeyboardLayout layout,
+                                  const std::string &keys) {
+    Zhuyin direct;
+    if (!direct.ok()) {
+        return {};
+    }
+    direct.setKeyboardLayout(layout);
+    direct.resetAll();
+    for (char key : keys) {
+        if (key == ' ') {
+            direct.handleSpace();
+            continue;
+        }
+        if (key >= 'A' && key <= 'Z') {
+            key = static_cast<char>(key + ('a' - 'A'));
+        }
+        direct.feedKey(key);
+    }
+    const std::string out = direct.preedit();
+    return contains_han_character(out) ? out : std::string{};
+}
+
 std::string direct_tone1_conversion(ari_ime::KeyboardLayout layout,
                                     const std::string &keys) {
     Zhuyin direct;
@@ -496,8 +522,22 @@ void test_local_context_prediction_examples() {
     phrase.type("e9");
     phrase.key(FcitxKey_space);
     phrase.type("g4g4");
-    check_eq(phrase.preedit(), "你應該試試",
-             "local phrase context ranks common homophones correctly");
+    // What Ari owns is that the run reaches libchewing whole; which homophone
+    // wins (試試 vs 是是 for ㄕˋㄕˋ) is libchewing's contextual ranking and
+    // differs between releases. So compare against the same keys fed to
+    // libchewing as one run: a Buffer that converted each syllable in isolation
+    // would diverge from that wherever context actually changes the outcome.
+    const std::string wantPhrase =
+        direct_run_conversion(ari_ime::KeyboardLayout::Default, "su3u/ e9 g4g4");
+    check(utf8_count(phrase.preedit()) == 5,
+          "the whole phrase converts to five characters");
+    check(contains_han_character(phrase.preedit()) &&
+              phrase.preedit().find_first_of("su3u/e9g4") == std::string::npos,
+          "no raw keys leak out of the converted phrase");
+    if (!wantPhrase.empty()) {
+        check_eq(phrase.preedit(), wantPhrase,
+                 "the phrase run is handed to libchewing whole, not per syllable");
+    }
 
     // The same ㄉㄜ˙ reading should follow the surrounding phrase rather than a
     // global one-character preference. ji3=我, 2k7=的/得, ql3=跑,
