@@ -352,10 +352,19 @@ restart_and_verify() {
     old_pid="$(pgrep -xo fcitx5 || true)"
 
     printf '\n==> Restarting Fcitx5 so it loads the new addon\n'
-    # setsid + full redirection: fcitx5 -d daemonises but keeps the inherited
-    # stdout open, which would otherwise hold this script (and any caller
-    # capturing its output) open indefinitely.
-    setsid fcitx5 -r -d </dev/null >/dev/null 2>&1 || true
+    # Debian and others can run Fcitx5 from a systemd user unit. `fcitx5 -r`
+    # there races the service manager, which simply restarts the original, so
+    # the daemon keeps the replaced module mapped. Ask systemd when it owns it.
+    if command -v systemctl >/dev/null 2>&1 &&
+        systemctl --user is-active --quiet fcitx5.service 2>/dev/null; then
+        printf '    (managed by systemd --user)\n'
+        systemctl --user restart fcitx5.service || true
+    else
+        # setsid + full redirection: fcitx5 -d daemonises but keeps the
+        # inherited stdout open, which would otherwise hold this script (and
+        # any caller capturing its output) open indefinitely.
+        setsid fcitx5 -r -d </dev/null >/dev/null 2>&1 || true
+    fi
 
     # Wait for a DIFFERENT pid, not merely for one to exist: the outgoing daemon
     # stays alive for a moment after its replacement starts, and `pgrep -xo`
@@ -383,8 +392,12 @@ restart_and_verify() {
                 --method org.fcitx.Fcitx.Controller1.GetConfig \
                 "fcitx://config/inputmethod/ari-ime" >/dev/null 2>&1 || true
         fi
+        # /proc/<pid>/maps is: address perms offset dev inode pathname...
+        # Take everything from the pathname on, because a replaced file has
+        # " (deleted)" appended and $NF alone would report just that.
         mapped="$(grep -F 'ari-ime.so' "/proc/$pid/maps" 2>/dev/null |
-            awk '{print $NF}' | sort -u | head -1)"
+            awk '{ out = ""; for (i = 6; i <= NF; i++) out = out (i > 6 ? " " : "") $i; print out }' |
+            sort -u | head -1)"
         [[ -n "$mapped" ]] && break
         sleep 0.2
         probe=$((probe + 1))
@@ -392,12 +405,29 @@ restart_and_verify() {
     printf '    Fcitx5 pid %s\n' "$pid"
     if [[ -z "$mapped" ]]; then
         printf '    addon not loaded yet (it loads when Ari IME is selected)\n'
-    elif [[ "$mapped" == *"(deleted)"* ]]; then
-        printf '    STALE: still running a replaced file (%s)\n' "$mapped"
-        printf '    Restart Fcitx5 again: fcitx5 -r -d\n'
-    else
-        printf '    loaded: %s\n' "$mapped"
+        return
     fi
+    if [[ "$mapped" != *"(deleted)"* ]]; then
+        printf '    loaded: %s\n' "$mapped"
+        return
+    fi
+
+    # The package is installed but the running daemon is still executing the
+    # previous build out of a file that no longer exists. Reporting success
+    # here would send the user off to test a change that is not running.
+    printf '    STALE: still executing a replaced file (%s)\n' "$mapped"
+    if [[ "$pid" == "$old_pid" ]]; then
+        printf '    The daemon did not restart: it is the same process as before.\n'
+    fi
+    local hint='fcitx5 -r -d'
+    if command -v systemctl >/dev/null 2>&1 &&
+        systemctl --user list-unit-files fcitx5.service >/dev/null 2>&1; then
+        hint='systemctl --user restart fcitx5'
+    fi
+    die "The package installed, but Fcitx5 is still running the old addon.
+Restart it by hand:   $hint
+If that does not work, log out and back in -- some sessions respawn Fcitx5
+from an autostart entry that competes with an in-place replacement."
 }
 
 report_installed() {
