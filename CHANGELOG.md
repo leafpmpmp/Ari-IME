@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Keep the pre-edit caret where the correction happened: after picking a
+  candidate the caret now sits on the character right after the text that was
+  rewritten, instead of snapping to the end of the pre-edit. Typing continues
+  at that point; End or Esc still returns to appending at the end. The new
+  `CaretAfterPick` setting restores the old jump-to-the-end behavior.
+- Add `LiteralKeyReinterpret`, restoring Ari's original ASUS-style gesture as an
+  option: with it set to `BopomofoSymbol`, ↑ on a literal 注音 key replaces just
+  that key with the symbol it stands for (`1` → `ㄅ`) as ordinary text, tone keys
+  included (`3` → `ˇ`). The symbol is a finished character, so the next keystroke
+  follows it rather than continuing the syllable. The default `Syllable` keeps
+  today's behavior of folding the key together with the next few into one Chinese
+  character.
+- Add `CandidateArrowKeys`, choosing what ←/→ do while the candidate window is
+  open: move to the neighbouring character's candidates (the default, unchanged)
+  or turn pages within the focused character's list, cycling at both ends the
+  way libchewing's own candidate window does. Whichever is not chosen stays
+  reachable — PageUp/PageDown always page (still stopping at the ends), and
+  Escape returns to the caret where ←/→ always move.
+- Shorten every configuration label and move the full explanation into a
+  tooltip. The long descriptions were rendered as unwrapped single-line labels
+  by KDE's System Settings module, stretching the Ari IME page past the right
+  edge of the window. Setting keys and defaults are unchanged, so existing
+  `conf/ari-ime.conf` files keep working. The full text of each option is also
+  documented in README.md, since that module does not render tooltips.
+
 ## 2.6.2 - 2026-08-25
 
 Bug-fix release restoring the test suite and fixing two candidate-window

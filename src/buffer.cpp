@@ -268,6 +268,19 @@ Zhuyin *probeForCurrentLayout(Zhuyin *&probe,
     return probe;
 }
 
+// The Bopomofo symbol(s) libchewing maps `keys` to on the current layout, or
+// empty when they are not 注音 keys. Tone keys map to their mark (3 -> ˇ), so
+// callers that want a syllable body must strip tones themselves.
+std::string bopomofoForKeys(const std::string &keys) {
+    // Intentionally leaked at process exit, same rationale as syllableConverts
+    // below: rebuilt only on explicit layout changes.
+    static Zhuyin *probe = nullptr;
+    static ari_ime::KeyboardLayout probeLayout = ari_ime::KeyboardLayout::Default;
+    Zhuyin *ctx = probeForCurrentLayout(probe, probeLayout);
+    ctx->feedSequence(ari_ime::canonicalKeys(keys));
+    return ctx->bopomofoString();
+}
+
 // Whether a complete (toned) canonical syllable converts to a Chinese character
 // with nothing left dangling.
 bool syllableConverts(const std::string &canonicalKeys) {
@@ -615,13 +628,7 @@ std::string Buffer::pendingSyllableHint() const {
     if (body.empty()) {
         return {};
     }
-    // Intentionally leaked at process exit, same rationale as
-    // syllableConverts above: rebuilt only on explicit layout changes.
-    static Zhuyin *probe = nullptr;
-    static ari_ime::KeyboardLayout probeLayout = ari_ime::KeyboardLayout::Default;
-    Zhuyin *ctx = probeForCurrentLayout(probe, probeLayout);
-    ctx->feedSequence(ari_ime::canonicalKeys(body));
-    return ctx->bopomofoString();
+    return bopomofoForKeys(body);
 }
 
 void Buffer::reset() {
@@ -2201,7 +2208,7 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
         if (target >= 0 && target < static_cast<int>(cells_.size())) {
             cells_[target] = {false, sc.text, {}};
         }
-        exitSelection();
+        finishPickAt(target + 1);
         return {true, false, {}, true};
     }
     if (sc.down < 0) {
@@ -2234,10 +2241,56 @@ KeyResult Buffer::pickCandidate(int pageIndex) {
         cells_[j].locked = true;
         cells_[j].selectionGroup = selectionGroup;
     }
-    // A completed pick is the common exit point from correction: return to the
-    // normal append-at-end path so the next printable key continues the sentence.
-    // Users who want to fix another cell can move there and reopen candidates.
-    exitSelection();
+    // A completed pick closes the candidate window but keeps caret mode, with the
+    // caret on the character right after the text that was just rewritten. The
+    // user corrected something mid-sentence, so that is where editing continues;
+    // End (or Escape) still returns to appending at the tail.
+    finishPickAt(pickedStart + picked);
+    return {true, false, {}, true};
+}
+
+void Buffer::finishPickAt(int caret) {
+    candOpen_ = false;
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
+    if (cells_.empty() ||
+        caretAfterPick_ == ari_ime::CaretAfterPick::EndOfText) {
+        // Leave editing entirely: the caret reports "at the very end" and the
+        // next printable key resumes the normal append path.
+        exitSelection();
+        return;
+    }
+    const int n = static_cast<int>(cells_.size());
+    caretPos_ = std::clamp(caret, 0, n);
+    // The caret sits BETWEEN cells; selCursor_ names a cell, so park it on the
+    // one the caret points at (the last cell when the caret is at the very end).
+    selCursor_ = std::min(caretPos_, n - 1);
+    // Leave chewing's own candidate window closed. The run stays loaded, but
+    // every path that reopens candidates (openCandidatesAt / moveSelCursor)
+    // clears runLoaded_ first, so a later pick always re-feeds from the cells.
+    zhuyin_.closeCandidates();
+}
+
+KeyResult Buffer::changeCandidatePage(int delta, bool wrap) {
+    const int total = static_cast<int>(selCands_.size());
+    const int totalPages =
+        (total + ari_ime::kCandPerPage - 1) / ari_ime::kCandPerPage;
+    if (totalPages <= 0) {
+        selPage_ = 0;
+        highlight_ = 0;
+        return {true, false, {}, true};
+    }
+    int page = selPage_ + delta;
+    if (wrap) {
+        // Cycle like libchewing's own candidate window (and like ↓/↑ here):
+        // past the last page is the first, before the first is the last.
+        page = ((page % totalPages) + totalPages) % totalPages;
+    } else {
+        page = std::clamp(page, 0, totalPages - 1);
+    }
+    selPage_ = page;
+    highlight_ = 0;
     return {true, false, {}, true};
 }
 
@@ -2410,6 +2463,33 @@ KeyResult Buffer::revertCellToEnglish() {
     highlight_ = 0;
     caretPos_ = at;
     selCursor_ = at - 1;
+    return {true, false, {}, true};
+}
+
+KeyResult Buffer::showBopomofoForCell(int cell) {
+    const std::string key = cells_[cell].text;
+    // One key only, and only one that means something on this layout. Anything
+    // else (a letter with no 注音 slot, a multi-codepoint literal) is left alone
+    // so ↑ stays a no-op rather than mangling text.
+    if (key.size() != 1 ||
+        ari_ime::zhuyinSlot(key[0]) == ari_ime::kNoZhuyinSlot) {
+        return {true, false, {}, true};
+    }
+    const std::string symbol = bopomofoForKeys(key);
+    if (symbol.empty()) {
+        return {true, false, {}, true};
+    }
+    clearSelectionUndo(); // a structural edit, like reinterpretFromCell
+    cells_[cell] = {false, symbol, {}};
+    // Stay in caret mode with the caret just after the symbol, so the next
+    // keystroke continues there like every other in-place edit.
+    candOpen_ = false;
+    selCands_.clear();
+    selPage_ = 0;
+    highlight_ = 0;
+    runLoaded_ = false; // the cell's content changed under any loaded run
+    caretPos_ = cell + 1;
+    selCursor_ = cell;
     return {true, false, {}, true};
 }
 
@@ -2643,6 +2723,10 @@ KeyResult Buffer::openCandidatesAt(int cell, bool reinterpret) {
     // English cell: only ↑ acts — fold it (+ the next few) back into a 注音
     // character and open its candidates. ↓ on English has nothing to pick.
     if (reinterpret) {
+        if (literalKeyReinterpret_ ==
+            ari_ime::LiteralKeyReinterpret::BopomofoSymbol) {
+            return showBopomofoForCell(cell);
+        }
         // reinterpretFromCell() early-outs without touching selCands_ on
         // failure paths; a stale list from a previous picking session would
         // reopen a window wired to the wrong cell and let the next pick land
@@ -2678,7 +2762,15 @@ KeyResult Buffer::handlePicking(const fcitx::Key &key) {
         return moveCaretByPhrase(sym == FcitxKey_Left ? -1 : 1);
     }
 
-    // ←/→ step to the adjacent character's candidates (fix several in a row).
+    // ←/→ step to the adjacent character's candidates (fix several in a row),
+    // or page through this character's list when the user configured that. The
+    // mode they did not pick stays reachable: PageUp/PageDown always page, and
+    // Escape drops to caret mode where ←/→ always move.
+    if ((sym == FcitxKey_Left || sym == FcitxKey_Right) &&
+        candidateArrowKeys_ == ari_ime::CandidateArrowKeys::ChangePage) {
+        return changeCandidatePage(sym == FcitxKey_Right ? 1 : -1,
+                                   /*wrap=*/true);
+    }
     if (sym == FcitxKey_Left) {
         return moveSelCursor(-1);
     }
@@ -2780,18 +2872,10 @@ KeyResult Buffer::handlePicking(const fcitx::Key &key) {
         return {true, false, {}, true};
     }
     if (sym == FcitxKey_Page_Down) {
-        if (selPage_ + 1 < totalPages) {
-            ++selPage_;
-        }
-        highlight_ = 0;
-        return {true, false, {}, true};
+        return changeCandidatePage(1, /*wrap=*/false);
     }
     if (sym == FcitxKey_Page_Up) {
-        if (selPage_ > 0) {
-            --selPage_;
-        }
-        highlight_ = 0;
-        return {true, false, {}, true};
+        return changeCandidatePage(-1, /*wrap=*/false);
     }
 
     // Pick directly by number (main row or numeric keypad).

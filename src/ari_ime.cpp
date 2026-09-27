@@ -371,6 +371,9 @@ void AriImeEngine::keyEvent(const fcitx::InputMethodEntry &,
     state->buffer.setChinesePunctuationShortcut(
         *config_.chinesePunctuationShortcut);
     state->buffer.setSpaceCandidateMode(*config_.spaceCandidateMode);
+    state->buffer.setCandidateArrowKeys(*config_.candidateArrowKeys);
+    state->buffer.setCaretAfterPick(*config_.caretAfterPick);
+    state->buffer.setLiteralKeyReinterpret(*config_.literalKeyReinterpret);
     if (layoutChanged) {
         std::string message =
             std::string("鍵盤 ") + ari_ime::keyboardLayoutName(layout);

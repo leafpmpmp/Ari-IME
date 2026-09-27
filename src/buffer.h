@@ -134,6 +134,32 @@ public:
         spaceCandidateMode_ = on;
         return true;
     }
+    // ←/→ inside the candidate window: step to the neighbouring character, or
+    // page through the focused character's candidates.
+    bool setCandidateArrowKeys(ari_ime::CandidateArrowKeys keys) {
+        if (candidateArrowKeys_ == keys) {
+            return false;
+        }
+        candidateArrowKeys_ = keys;
+        return true;
+    }
+    // ↑ on a literal character: fold it into a Chinese character, or replace
+    // just that key with its Bopomofo symbol.
+    bool setLiteralKeyReinterpret(ari_ime::LiteralKeyReinterpret how) {
+        if (literalKeyReinterpret_ == how) {
+            return false;
+        }
+        literalKeyReinterpret_ = how;
+        return true;
+    }
+    // Where the caret lands after a candidate is chosen.
+    bool setCaretAfterPick(ari_ime::CaretAfterPick where) {
+        if (caretAfterPick_ == where) {
+            return false;
+        }
+        caretAfterPick_ = where;
+        return true;
+    }
     bool setKeyboardLayout(ari_ime::KeyboardLayout layout);
     // The frontend disables learning for password and other sensitive fields.
     void setLearningAllowed(bool allowed) { learningAllowed_ = allowed; }
@@ -271,6 +297,16 @@ private:
     KeyResult moveCaretByPhrase(int direction);
     std::vector<int> phraseBoundaries();
     KeyResult pickCandidate(int pageIndex); // pick a candidate on the current page
+    // Close the candidate window after a completed pick and stay in caret mode
+    // with the caret parked at cell index `caret` — the cell just after the text
+    // the pick rewrote. Correction is a mid-string operation, so by default the
+    // caret stays where the user was working instead of snapping back to the
+    // end; CaretAfterPick::EndOfText restores the append-at-end behavior.
+    void finishPickAt(int caret);
+    // Move `delta` candidate pages. `wrap` cycles past either end (what ←/→ do
+    // under CandidateArrowKeys::ChangePage, matching libchewing's own window
+    // and ↓/↑ here); PageUp/PageDown pass false and stop at the ends.
+    KeyResult changeCandidatePage(int delta, bool wrap);
     KeyResult forgetHighlightedCandidate();
     void rememberSelectionUndo();
     void clearSelectionUndo();
@@ -292,6 +328,11 @@ private:
     // open its candidates — recovering "catsu3" -> cat + 你 when the syllable's
     // 聲母 was wrongly absorbed into the English run.
     KeyResult reinterpretFromCell();
+    // ↑ under LiteralKeyReinterpret::BopomofoSymbol: replace the single literal
+    // 注音 key at `cell` with the symbol it stands for (1 -> ㄅ), as ordinary
+    // text. Deliberately does NOT resume composition — the symbol is a finished
+    // character and the next keystroke continues after it.
+    KeyResult showBopomofoForCell(int cell);
     // ↑ on a Chinese cell: explode it back into its raw 注音 keys as English
     // cells (你 -> s u 3), for when the literal keys were what was wanted.
     KeyResult revertCellToEnglish();
@@ -302,6 +343,12 @@ private:
     ari_ime::ChinesePunctuationShortcut punctuationShortcut_ =
         ari_ime::ChinesePunctuationShortcut::ControlShift;
     bool spaceCandidateMode_ = false;
+    ari_ime::CandidateArrowKeys candidateArrowKeys_ =
+        ari_ime::CandidateArrowKeys::MoveCursor;
+    ari_ime::CaretAfterPick caretAfterPick_ =
+        ari_ime::CaretAfterPick::NextCharacter;
+    ari_ime::LiteralKeyReinterpret literalKeyReinterpret_ =
+        ari_ime::LiteralKeyReinterpret::Syllable;
     bool learningAllowed_ = true;
     ari_ime::KeyboardLayout layout_ = ari_ime::KeyboardLayout::Default;
     Token token_ = Token::Chinese;

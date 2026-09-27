@@ -161,6 +161,57 @@ bool contains_han_character(const std::string &text) {
     return false;
 }
 
+// What libchewing itself converts an already-toned key sequence to on `layout`,
+// with no Buffer in the loop. Both the keyboard tables and the phrase ranking
+// belong to libchewing and differ between releases (see ISSUES.md), so a test
+// that means "Ari routes these keys the way libchewing does" has to derive its
+// expectation rather than pin a character that happened to be right on one
+// distribution. Returns empty when the sequence does not convert, so callers
+// can skip instead of asserting against nothing.
+std::string direct_conversion(ari_ime::KeyboardLayout layout,
+                              const std::string &keys) {
+    Zhuyin direct;
+    if (!direct.ok()) {
+        return {};
+    }
+    direct.setKeyboardLayout(layout);
+    std::string folded = keys;
+    for (char &key : folded) {
+        if (key >= 'A' && key <= 'Z') {
+            key = static_cast<char>(key + ('a' - 'A'));
+        }
+    }
+    direct.feedSequence(folded);
+    const std::string out = direct.preedit();
+    return contains_han_character(out) ? out : std::string{};
+}
+
+// Feed `keys` straight to libchewing as ONE run, with ' ' meaning the tone-1
+// Space key, and no Buffer in between. Lets a test assert "Ari handed the whole
+// run to libchewing" without also asserting which homophone libchewing picks —
+// that ranking is libchewing's and moves between releases (see ISSUES.md).
+std::string direct_run_conversion(ari_ime::KeyboardLayout layout,
+                                  const std::string &keys) {
+    Zhuyin direct;
+    if (!direct.ok()) {
+        return {};
+    }
+    direct.setKeyboardLayout(layout);
+    direct.resetAll();
+    for (char key : keys) {
+        if (key == ' ') {
+            direct.handleSpace();
+            continue;
+        }
+        if (key >= 'A' && key <= 'Z') {
+            key = static_cast<char>(key + ('a' - 'A'));
+        }
+        direct.feedKey(key);
+    }
+    const std::string out = direct.preedit();
+    return contains_han_character(out) ? out : std::string{};
+}
+
 std::string direct_tone1_conversion(ari_ime::KeyboardLayout layout,
                                     const std::string &keys) {
     Zhuyin direct;
@@ -471,8 +522,22 @@ void test_local_context_prediction_examples() {
     phrase.type("e9");
     phrase.key(FcitxKey_space);
     phrase.type("g4g4");
-    check_eq(phrase.preedit(), "你應該試試",
-             "local phrase context ranks common homophones correctly");
+    // What Ari owns is that the run reaches libchewing whole; which homophone
+    // wins (試試 vs 是是 for ㄕˋㄕˋ) is libchewing's contextual ranking and
+    // differs between releases. So compare against the same keys fed to
+    // libchewing as one run: a Buffer that converted each syllable in isolation
+    // would diverge from that wherever context actually changes the outcome.
+    const std::string wantPhrase =
+        direct_run_conversion(ari_ime::KeyboardLayout::Default, "su3u/ e9 g4g4");
+    check(utf8_count(phrase.preedit()) == 5,
+          "the whole phrase converts to five characters");
+    check(contains_han_character(phrase.preedit()) &&
+              phrase.preedit().find_first_of("su3u/e9g4") == std::string::npos,
+          "no raw keys leak out of the converted phrase");
+    if (!wantPhrase.empty()) {
+        check_eq(phrase.preedit(), wantPhrase,
+                 "the phrase run is handed to libchewing whole, not per syllable");
+    }
 
     // The same ㄉㄜ˙ reading should follow the surrounding phrase rather than a
     // global one-character preference. ji3=我, 2k7=的/得, ql3=跑,
@@ -562,17 +627,36 @@ void test_additional_layout_typing() {
         }
         ari_ime::setCurrentKeyboardLayout(c.layout);
 
+        // Expect whatever libchewing makes of the same keys on this layout,
+        // not a hardcoded character: its keyboard tables differ between
+        // releases, so 精業 `vla` is 好 on one distribution and 吼 on another.
+        // What Ari owns — and what this checks — is that routing the keys
+        // through the Buffer lands on the same result as feeding libchewing
+        // directly.
         Sim single;
         single.b.setKeyboardLayout(c.layout);
         single.type(c.ni);
-        std::string singleLabel = std::string(c.name) + " types 你";
-        check_eq(single.preedit(), "你", singleLabel.c_str());
+        const std::string wantNi = direct_conversion(c.layout, c.ni);
+        if (!wantNi.empty()) {
+            std::string label = std::string(c.name) + " types one character";
+            check_eq(single.preedit(), wantNi, label.c_str());
+            std::string countLabel =
+                std::string(c.name) + " single stays one character";
+            check(utf8_count(single.preedit()) == 1, countLabel.c_str());
+        }
 
         Sim phrase;
         phrase.b.setKeyboardLayout(c.layout);
         phrase.type(std::string(c.ni) + c.hao);
-        std::string phraseLabel = std::string(c.name) + " types 你好";
-        check_eq(phrase.preedit(), "你好", phraseLabel.c_str());
+        const std::string wantPhrase =
+            direct_conversion(c.layout, std::string(c.ni) + c.hao);
+        if (!wantPhrase.empty()) {
+            std::string label = std::string(c.name) + " types two characters";
+            check_eq(phrase.preedit(), wantPhrase, label.c_str());
+            std::string countLabel =
+                std::string(c.name) + " phrase stays two characters";
+            check(utf8_count(phrase.preedit()) == 2, countLabel.c_str());
+        }
     }
 
     ari_ime::setCurrentKeyboardLayout(ari_ime::KeyboardLayout::Default);
@@ -879,6 +963,89 @@ void test_phrase_pick() {
              "typing after end-of-line phrase pick appends at tail");
 }
 
+// Correcting a character is a mid-string edit: the caret belongs on the
+// character right after the one that was fixed, so the next keystroke continues
+// there. It used to snap to the end of the pre-edit no matter where the user
+// was working.
+void test_pick_leaves_caret_after_correction() {
+    const std::string bu = bu4_default();
+
+    Sim s;
+    s.type("su3cl31j4"); // 你好 + one more character
+    const std::string composed = s.preedit();
+    check(utf8_count(composed) == 3,
+          "caret-after-pick setup composes three characters");
+
+    s.key(FcitxKey_Home); // caret mode, caret before the first character
+    s.key(FcitxKey_Down); // open candidates for the first character
+    check(s.b.isPicking(), "caret-after-pick setup opens the candidate window");
+    const int niIndex = find_visible_candidate(s.cand(), "妳");
+    check(niIndex >= 0, "visible candidates include 妳 for the caret test");
+    KeyResult picked = s.b.selectCandidate(niIndex);
+    check(picked.handled, "caret test picks 妳 directly");
+
+    check(!s.b.isPicking(), "a completed pick closes the candidate window");
+    check(s.b.isEditing(), "a completed pick stays in caret editing");
+    check(s.b.caretChar() == 1,
+          "the caret lands on the character after the corrected one");
+
+    // Typing resumes at the caret, not at the end of the line.
+    s.type("1j4");
+    check_eq(s.preedit(), "妳" + bu + utf8_char_at(composed, 1) +
+                              utf8_char_at(composed, 2),
+             "typing after a mid-string pick inserts at the caret");
+
+    // A phrase pick spans several cells; the caret clears the whole phrase.
+    Sim phrase;
+    phrase.type("su3cl31j4");
+    phrase.key(FcitxKey_Home);
+    phrase.key(FcitxKey_Down);
+    const int phraseIndex = find_visible_candidate(phrase.cand(), "妳好");
+    if (phraseIndex >= 0) {
+        check(phrase.b.selectCandidate(phraseIndex).handled,
+              "caret test picks the 妳好 phrase");
+        check(phrase.b.caretChar() == 2,
+              "the caret lands after the whole phrase a pick rewrote");
+    }
+
+    // Punctuation cells use the same picker and must behave the same way.
+    Sim punct;
+    punct.key('[');  // a literal punctuation cell
+    punct.type("su3cl3");
+    punct.key(FcitxKey_Home);
+    punct.key(FcitxKey_Down); // candidates for the punctuation cell
+    const auto punctCands = punct.cand();
+    check(!punctCands.empty(), "punctuation cell opens its own candidates");
+    int variant = -1;
+    for (int i = 0; i < static_cast<int>(punctCands.size()); ++i) {
+        if (punctCands[i] != "[") {
+            variant = i;
+            break;
+        }
+    }
+    check(variant >= 0, "punctuation picker offers another variant");
+    check(punct.b.selectCandidate(variant).handled,
+          "caret test picks a punctuation variant");
+    check_eq(utf8_char_at(punct.preedit(), 0), punctCands[variant],
+             "punctuation pick rewrites the focused cell");
+    check(punct.b.caretChar() == 1,
+          "the caret lands after a corrected punctuation cell too");
+
+    // Fixing the final character still leaves the caret at the end, so the
+    // common "correct the last character, keep typing" flow is unchanged.
+    Sim last;
+    last.type("su3cl3");
+    last.key(FcitxKey_Down); // caret at the end -> candidates for the last cell
+    const int haoIndex = find_visible_candidate(last.cand(), "郝");
+    check(haoIndex >= 0, "visible candidates include 郝 for the caret test");
+    check(last.b.selectCandidate(haoIndex).handled, "caret test picks 郝");
+    check(last.b.caretChar() == 2,
+          "correcting the last character leaves the caret at the end");
+    last.type("1j4");
+    check_eq(last.preedit(), "你郝" + bu,
+             "typing after correcting the last character still appends");
+}
+
 void test_candidate_direct_selection() {
     const std::string bu = bu4_default();
 
@@ -909,11 +1076,14 @@ void test_candidate_direct_selection() {
     check(r.handled, "direct candidate selection handles single candidate");
     check_eq(single.preedit(), "妳好",
              "direct single candidate rewrites focused cell");
-    check(!single.b.isEditing() && single.b.selectionChar() == -1,
-          "direct single candidate exits correction mode");
+    check(single.b.isEditing() && !single.b.isPicking() &&
+              single.b.selectionChar() == -1,
+          "direct single candidate closes the window but stays in caret mode");
+    check(single.b.caretChar() == 1,
+          "direct single candidate parks the caret after the fixed character");
     single.type("1j4");
-    check_eq(single.preedit(), "妳好" + bu,
-             "typing after direct pick resumes at end");
+    check_eq(single.preedit(), "妳" + bu + "好",
+             "typing after direct pick continues at the corrected position");
 
     Sim stale;
     stale.type("su3");
@@ -964,7 +1134,8 @@ void test_pin_earlier_pick() {
     KeyResult pinned = s.b.selectCandidate(niPinnedIndex);
     check(pinned.handled, "pinning test picks 妳 directly");
     check_eq(s.preedit(), "妳好", "picked 妳 single");
-    check(!s.b.isEditing(), "pick exits correction mode");
+    check(s.b.isEditing() && !s.b.isPicking() && s.b.caretChar() == 1,
+          "pick leaves the caret just after the character it fixed");
     // Reopen correction on 好 and fix it to 郝. The earlier 妳 pick must stay locked.
     s.key(FcitxKey_Home);
     s.key(FcitxKey_Right);
@@ -974,7 +1145,8 @@ void test_pin_earlier_pick() {
     KeyResult haoPinned = s.b.selectCandidate(haoPinnedIndex);
     check(haoPinned.handled, "pinning test picks 郝 directly");
     check_eq(s.preedit(), "妳郝", "earlier 妳 stays locked after picking 郝");
-    check(!s.b.isEditing(), "second pick returns to append mode");
+    check(s.b.isEditing() && !s.b.isPicking() && s.b.caretChar() == 2,
+          "fixing the final character leaves the caret at the end");
     s.type("1j4");
     check_eq(s.preedit(), "妳郝" + bu,
              "typing after reopened correction appends after fixed text");
@@ -1284,6 +1456,193 @@ void test_revert_entry() {
              "typing after mid-string raw-key revert resumes before next cell");
 }
 
+// CandidateArrowKeys picks who owns ←/→ while candidates are open, and
+// CaretAfterPick picks where the caret lands once one is chosen. Both defaults
+// are asserted by the surrounding tests; these cover the non-default settings.
+void test_candidate_arrow_key_and_caret_options() {
+    const std::string bu = bu4_default();
+
+    // ChangePage: ←/→ turn pages instead of walking to the next character.
+    Sim page;
+    check(page.b.setCandidateArrowKeys(ari_ime::CandidateArrowKeys::ChangePage),
+          "arrow-key setter reports the change");
+    check(!page.b.setCandidateArrowKeys(ari_ime::CandidateArrowKeys::ChangePage),
+          "arrow-key setter is idempotent");
+    page.type("su3cl3");       // 你好
+    page.key(FcitxKey_Home);
+    page.key(FcitxKey_Down);   // candidates for 你
+    const auto firstPage = page.cand();
+    check(page.b.isPicking(), "ChangePage setup opens the candidate window");
+    check(page.b.candidatePage() == 1, "ChangePage setup starts at page 1");
+    const int focused = page.b.selectionChar();
+    check(focused >= 0, "ChangePage setup focuses a character");
+    // How many pages libchewing offers for 你 is version-dependent (see
+    // ISSUES.md), so drive the assertions off the reported count rather than
+    // assuming a number. The invariants below hold for one page as well.
+    const int lastPage = page.b.candidatePageCount();
+    check(lastPage >= 1, "ChangePage setup reports at least one page");
+
+    // The arrows page and cycle at both ends, like libchewing's own window.
+    page.key(FcitxKey_Right);
+    check(page.b.candidatePage() == (lastPage > 1 ? 2 : 1),
+          "Right turns to the next page");
+    check(page.b.selectionChar() == focused,
+          "Right keeps the focus on the same character");
+    if (lastPage > 1) {
+        check(page.cand() != firstPage, "Right shows different candidates");
+        page.key(FcitxKey_Left);
+        check(page.b.candidatePage() == 1, "Left turns back a page");
+        check(page.cand() == firstPage, "Left restores the first page");
+    }
+
+    page.key(FcitxKey_Home); // rebuild the list; leaves the page counter at 1
+    check(page.b.candidatePage() == 1, "ChangePage wrap test starts at page 1");
+    // Re-read the count: Home refeeds the run, so the rebuilt list is the one
+    // the wrap assertions below actually page through.
+    const int pages = page.b.candidatePageCount();
+    page.key(FcitxKey_Left);
+    check(page.b.candidatePage() == pages,
+          "Left on the first page wraps to the last");
+    page.key(FcitxKey_Right);
+    check(page.b.candidatePage() == 1,
+          "Right on the last page wraps to the first");
+    for (int i = 0; i < pages; ++i) {
+        page.key(FcitxKey_Right);
+    }
+    check(page.b.candidatePage() == 1,
+          "a full lap of Right returns to the first page");
+    check(page.b.selectionChar() == focused,
+          "paging never leaves the focused character");
+
+    // PageUp/PageDown keep their existing stop-at-the-end behavior.
+    page.key(FcitxKey_Page_Up);
+    check(page.b.candidatePage() == 1, "PageUp stops at the first page");
+    page.key(FcitxKey_Page_Down);
+    check(page.b.candidatePage() == (pages > 1 ? 2 : 1),
+          "PageDown still advances");
+    page.key(FcitxKey_Escape);
+    check(page.b.isEditing() && !page.b.isPicking(),
+          "Escape leaves the candidate window for caret mode");
+    page.key(FcitxKey_Right);
+    check(page.b.caretChar() == 1, "caret-mode Right still moves the caret");
+
+    // The default keeps ←/→ walking between characters.
+    Sim move;
+    move.type("su3cl3");
+    move.key(FcitxKey_Home);
+    move.key(FcitxKey_Down);
+    const int firstChar = move.b.selectionChar();
+    move.key(FcitxKey_Right);
+    check(move.b.selectionChar() == firstChar + 1,
+          "MoveCursor keeps Right walking to the next character");
+
+    // EndOfText restores the pre-2.6.3 behavior: a pick drops back to append.
+    Sim endOfText;
+    check(endOfText.b.setCaretAfterPick(ari_ime::CaretAfterPick::EndOfText),
+          "caret setter reports the change");
+    check(!endOfText.b.setCaretAfterPick(ari_ime::CaretAfterPick::EndOfText),
+          "caret setter is idempotent");
+    endOfText.type("su3cl3");
+    endOfText.key(FcitxKey_Home);
+    endOfText.key(FcitxKey_Down);
+    const int niIndex = find_visible_candidate(endOfText.cand(), "妳");
+    check(niIndex >= 0, "visible candidates include 妳 for the EndOfText test");
+    check(endOfText.b.selectCandidate(niIndex).handled,
+          "EndOfText test picks 妳");
+    check_eq(endOfText.preedit(), "妳好", "EndOfText pick still rewrites the cell");
+    check(!endOfText.b.isEditing() && endOfText.b.caretChar() == -1,
+          "EndOfText leaves correction mode with the caret at the end");
+    endOfText.type("1j4");
+    check_eq(endOfText.preedit(), "妳好" + bu,
+             "EndOfText resumes appending at the tail");
+}
+
+// ↑ on a literal key as Ari's original ASUS-style gesture: one key becomes the
+// Bopomofo symbol it stands for, as a finished character.
+void test_up_shows_bopomofo_symbol() {
+    // Default: ↑ keeps folding literal keys into a Chinese character.
+    Sim merge;
+    merge.type("1");
+    merge.key(FcitxKey_Up);
+    check_eq(merge.preedit(), "1",
+             "by default a lone key that forms no syllable is left alone");
+
+    Sim s;
+    check(s.b.setLiteralKeyReinterpret(
+              ari_ime::LiteralKeyReinterpret::BopomofoSymbol),
+          "literal-key setter reports the change");
+    check(!s.b.setLiteralKeyReinterpret(
+              ari_ime::LiteralKeyReinterpret::BopomofoSymbol),
+          "literal-key setter is idempotent");
+
+    s.type("1");
+    check_eq(s.preedit(), "1", "a lone 注音 key stays literal while typing");
+    s.key(FcitxKey_Up);
+    check_eq(s.preedit(), "ㄅ", "Up turns the literal key into its Bopomofo symbol");
+    check(s.b.isEditing() && !s.b.isPicking(),
+          "the symbol does not open a candidate window");
+    check(s.b.caretChar() == 1, "the caret parks just after the symbol");
+
+    // The symbol is a finished character: the next key follows it rather than
+    // continuing the syllable.
+    s.type("j");
+    check_eq(s.preedit(), "ㄅj", "typing after the symbol appends, not composes");
+    s.key(FcitxKey_Return);
+    check_eq(s.committed, "ㄅj", "the symbol commits as ordinary text");
+
+    // Pressing Up again on the symbol is a no-op: it is no longer a raw key.
+    Sim twice;
+    twice.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    twice.type("1");
+    twice.key(FcitxKey_Up);
+    twice.key(FcitxKey_Up);
+    check_eq(twice.preedit(), "ㄅ", "a second Up leaves the symbol unchanged");
+
+    // ↓ on the symbol must not mistake it for punctuation and open a list.
+    Sim down;
+    down.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    down.type("1");
+    down.key(FcitxKey_Up);
+    down.key(FcitxKey_Down);
+    check(!down.b.isPicking(), "Down on a Bopomofo symbol opens no candidates");
+    check_eq(down.preedit(), "ㄅ", "Down leaves the symbol unchanged");
+
+    // Tone keys carry their mark; only the focused key converts.
+    Sim tone;
+    tone.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    tone.type("3");
+    tone.key(FcitxKey_Up);
+    check_eq(tone.preedit(), "ˇ", "Up on a tone key shows its tone mark");
+
+    Sim one;
+    one.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    one.type("1j4");
+    check_eq(one.preedit(), bu4_default(),
+             "keys that complete a syllable still convert while typing");
+
+    Sim mid;
+    mid.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    mid.type("cat");
+    mid.key(FcitxKey_Home);
+    mid.key(FcitxKey_Up);
+    check_eq(mid.preedit(), "ㄏat",
+             "only the character under the caret converts, not the run");
+    check(mid.b.caretChar() == 1, "the caret follows the converted character");
+
+    // A key with no 注音 slot on this layout is left untouched.
+    Sim inert;
+    inert.b.setLiteralKeyReinterpret(
+        ari_ime::LiteralKeyReinterpret::BopomofoSymbol);
+    inert.b.pasteAtCaret("@");
+    inert.key(FcitxKey_Up);
+    check_eq(inert.preedit(), "@", "Up leaves a non-注音 key alone");
+}
+
 void test_candidate_paging() {
     const std::string bu = bu4_default();
 
@@ -1324,11 +1683,14 @@ void test_candidate_paging() {
     pick.key('3');
     check_eq(utf8_char_at(pick.preedit(), 0), want,
              "page2 digit 3 applies visible page2 slot 3");
-    check(!pick.b.isEditing() && pick.b.selectionChar() == -1,
-          "cross-page pick exits correction mode");
+    check(pick.b.isEditing() && !pick.b.isPicking() &&
+              pick.b.selectionChar() == -1,
+          "cross-page pick closes the window but stays in caret mode");
+    check(pick.b.caretChar() == 1,
+          "cross-page pick parks the caret after the fixed character");
     pick.type("1j4");
-    check_eq(pick.preedit(), want + "好" + bu,
-             "typing after cross-page pick appends at end");
+    check_eq(pick.preedit(), want + bu + "好",
+             "typing after cross-page pick continues at the corrected position");
 }
 
 void test_candidate_tab_navigation() {
@@ -2362,12 +2724,25 @@ void test_ambiguous_symbol_boundary_literals() {
     check_eq(symbolHeavy.preedit(), "-?",
              "invalid symbol-heavy sequence still falls back to literal");
 
+    // The point here is that `-`, a punctuation-looking key, is consumed as part
+    // of the syllable instead of leaking out as a literal. Which characters the
+    // two syllables become is libchewing's call and differs between releases,
+    // so derive that half of the expectation.
     Sim chinese;
     chinese.b.setKeyboardLayout(ari_ime::KeyboardLayout::GinYieh);
-    chinese.type("d-a"); // 你
-    chinese.type("vla"); // 好
-    check_eq(chinese.preedit(), "你好",
-             "normal zhuyin typing still works with punctuation-looking keys inside a syllable");
+    chinese.type("d-a");
+    chinese.type("vla");
+    const std::string typed = chinese.preedit();
+    check(typed.find('-') == std::string::npos,
+          "a punctuation-looking zhuyin key does not leak into the preedit");
+    check(utf8_count(typed) == 2,
+          "two symbol-containing syllables convert to two characters");
+    const std::string wantTyped =
+        direct_conversion(ari_ime::KeyboardLayout::GinYieh, "d-avla");
+    if (!wantTyped.empty()) {
+        check_eq(typed, wantTyped,
+                 "normal zhuyin typing still works with punctuation-looking keys inside a syllable");
+    }
 
     ari_ime::setCurrentKeyboardLayout(ari_ime::KeyboardLayout::Default);
 
@@ -2502,6 +2877,7 @@ int main() {
     test_live_matches_top_candidate();
     test_reconversion_core();
     test_phrase_pick();
+    test_pick_leaves_caret_after_correction();
     test_candidate_direct_selection();
     test_stale_candidate_activation_is_ignored();
     test_pin_earlier_pick();
@@ -2517,6 +2893,8 @@ int main() {
     test_up_navigates_not_revert();
     test_revert_entry();
     test_candidate_paging();
+    test_up_shows_bopomofo_symbol();
+    test_candidate_arrow_key_and_caret_options();
     test_candidate_tab_navigation();
     test_reinterpret();
     test_insert_while_selecting();
